@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Starhop Stats</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0b0d1f">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=Outfit:wght@400;600&display=swap">
+<style>
+:root{--void:#0b0d1f;--void-2:#151a3a;--line:rgba(143,151,201,.22);--ink:#e9ecff;--muted:#a3abd8;--orbit:#6ee7ff;--flare:#ffcf5a;--danger:#ff5d7a;
+  --display:"Chakra Petch","Trebuchet MS",system-ui,sans-serif;--body:"Outfit",system-ui,-apple-system,"Segoe UI",sans-serif;color-scheme:dark}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--void);color:var(--ink)}
+body{font:15px/1.5 var(--body);padding:40px max(16px,env(safe-area-inset-left,0px)) 64px max(16px,env(safe-area-inset-right,0px))}
+main{max-width:1000px;margin:0 auto;display:flex;flex-direction:column;gap:22px}
+h1{font-family:var(--display);font-size:32px;margin:0;letter-spacing:.03em}
+.sub{color:var(--muted);margin:0}
+a{color:var(--orbit)}
+.card{background:var(--void-2);border:1px solid var(--line);border-radius:14px;padding:18px}
+form{display:flex;flex-direction:column;gap:10px;max-width:340px}
+label{font-family:var(--display);font-size:12px;letter-spacing:.12em;color:var(--muted)}
+input{font:16px var(--body);color:var(--ink);background:var(--void);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+button{font:700 14px var(--display);letter-spacing:.1em;border:none;border-radius:999px;padding:11px 20px;background:var(--orbit);color:#00262e;cursor:pointer;align-self:flex-start}
+button.ghost{background:transparent;color:var(--muted);border:1px solid var(--line)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-offset:2px}
+.err{color:var(--danger);min-height:1.2em;margin:0}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.tile{background:var(--void-2);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:4px}
+.tile span{font-family:var(--display);font-size:11px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+.tile strong{font-family:var(--display);font-size:30px;font-variant-numeric:tabular-nums}
+.tile small{color:var(--muted);font-size:12px}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:14px}
+table{border-collapse:collapse;width:100%;min-width:760px;font-variant-numeric:tabular-nums}
+th,td{padding:9px 12px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-family:var(--display);font-size:11px;letter-spacing:.1em;color:var(--muted);font-weight:600;background:var(--void-2);position:sticky;top:0}
+th:first-child,td:first-child{text-align:left}
+tr:last-child td{border-bottom:none}
+.dim{color:var(--muted)}
+.bar{display:inline-block;height:8px;border-radius:4px;background:var(--orbit);vertical-align:middle;margin-left:8px;opacity:.8}
+.notes{color:var(--muted);font-size:13px;margin:0}
+.top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <div><h1>Starhop Stats</h1><p class="sub" id="sub">Daily play totals. Admins only.</p></div>
+    <button class="ghost" id="out" type="button" hidden>LOG OUT</button>
+  </div>
+
+  <section class="card" id="loginCard" hidden>
+    <form id="login">
+      <label for="em">EMAIL</label><input id="em" type="email" autocomplete="email">
+      <label for="pw">PASSWORD</label><input id="pw" type="password" autocomplete="current-password">
+      <p class="err" id="err"></p>
+      <button type="submit" id="go">LOG IN</button>
+    </form>
+  </section>
+
+  <p class="sub" id="status">Connecting…</p>
+
+  <section id="dash" hidden>
+    <div class="tiles" id="tiles"></div>
+    <h2 class="sub" style="font-family:var(--display);letter-spacing:.1em;font-size:13px;margin:22px 0 10px">LAST 30 DAYS (UTC)</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>DAY</th><th>PLAYERS</th><th>NEW</th><th>RETURNING</th><th>BACK NEXT DAY</th><th>RUNS</th><th>FIRST RUNS</th><th>TUTORIAL STARTED / DONE</th><th>SIGN-UPS</th><th>MISSIONS STARTED / CLEARED</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+    <p class="notes" style="margin-top:12px">"Players" counts each browser once per day. "Back next day" is the share of a day's new players who played again the following day, the key number for whether people like the game. A player on several devices counts once per device.</p>
+  </section>
+</main>
+<script>
+(async () => {
+'use strict';
+const $ = id => document.getElementById(id);
+const CFG = {apiKey:"AIzaSyDHAesr359PoFBoetJNEQ9pIZX8kW9MgKc", authDomain:"starhop-79786.firebaseapp.com", projectId:"starhop-79786",
+  storageBucket:"starhop-79786.firebasestorage.app", messagingSenderId:"529600027715", appId:"1:529600027715:web:f4234e0e5740eaf06f08f6"};
+const BASE = 'https://www.gstatic.com/firebasejs/10.12.2/';
+const status = t => { $('status').textContent = t; $('status').hidden = !t; };
+let A, F, auth, db;
+try {
+  const [appM, a, f, C] = await Promise.all([import(BASE+'firebase-app.js'), import(BASE+'firebase-auth.js'), import(BASE+'firebase-firestore.js'), import(BASE+'firebase-app-check.js').catch(()=>null)]);
+  A = a; F = f;
+  const app = appM.initializeApp(CFG);
+  const reach = await Promise.race([fetch('https://www.google.com/recaptcha/enterprise.js',{mode:'no-cors',cache:'force-cache'}).then(()=>true,()=>false), new Promise(r=>setTimeout(()=>r(false),4000))]);
+  if (C && reach){ try { C.initializeAppCheck(app, {provider:new C.ReCaptchaEnterpriseProvider('6LfGNzQuAAAAADR39HKyMh_W_PWwpLrhKdduAM2I'), isTokenAutoRefreshEnabled:true}); } catch(e){} }
+  auth = A.getAuth(app); db = F.getFirestore(app);
+} catch(e){ status('Couldn’t load. Check your connection and reload.'); return; }
+
+$('login').addEventListener('submit', async e => {
+  e.preventDefault(); $('err').textContent=''; $('go').disabled=true;
+  try { await A.signInWithEmailAndPassword(auth, $('em').value.trim(), $('pw').value); }
+  catch(err){ $('err').textContent = 'That email or password is wrong.'; }
+  $('go').disabled=false;
+});
+$('out').addEventListener('click', () => A.signOut(auth));
+
+A.onAuthStateChanged(auth, async user => {
+  $('dash').hidden = true; $('out').hidden = !user;
+  if (!user){ $('loginCard').hidden = false; status('Log in with your Starhop admin account.'); return; }
+  $('loginCard').hidden = true; status('Loading…');
+  const admin = await F.getDoc(F.doc(db,'admins',user.uid)).then(s=>s.exists(), ()=>false);
+  if (!admin){ status('This account isn’t a Starhop admin, so it can’t see the stats.'); return; }
+  try {
+    const snap = await F.getDocs(F.query(F.collection(db,'stats'), F.orderBy(F.documentId(),'desc'), F.limit(31)));
+    render(snap.docs.map(d=>({day:d.id, ...d.data()})));
+    status('');
+  } catch(e){ status('Couldn’t read the stats. Make sure the latest database rules are published.'); }
+});
+
+function render(days){
+  const by = Object.fromEntries(days.map(d=>[d.day,d]));
+  const next = day => { const t = new Date(day+'T00:00:00Z'); t.setUTCDate(t.getUTCDate()+1); return t.toISOString().slice(0,10); };
+  const n = (d,k) => +(d && d[k]) || 0;
+  const pct = (a,b) => b ? Math.round(a/b*100)+'%' : '—';
+  const today = new Date().toISOString().slice(0,10);
+  // tiles: last 7 full-or-current days
+  const last7 = days.slice(0,7);
+  const sum = k => last7.reduce((a,d)=>a+n(d,k),0);
+  let d1n=0, d1d=0;
+  for (const d of days.slice(0,8)){ const nx = next(d.day); if (nx > today) continue; d1n += n(by[nx],'d1Returns'); d1d += n(d,'newUsers'); }
+  const tiles = [
+    ['Players', sum('users'), 'per-day total, last 7 days'],
+    ['New players', sum('newUsers'), 'first visit, last 7 days'],
+    ['Back next day', pct(d1n,d1d), 'of new players, last 7 days'],
+    ['Runs per player', sum('users') ? (sum('runs')/sum('users')).toFixed(1) : '—', 'last 7 days'],
+    ['Finished tutorial', pct(sum('tutorialDone'), sum('tutorialStarts')), 'of those who started it'],
+    ['Sign-ups', sum('signups'), 'last 7 days'],
+  ];
+  $('tiles').innerHTML = '';
+  for (const [l,v,s] of tiles){ const t=document.createElement('div'); t.className='tile';
+    const a=document.createElement('span'); a.textContent=l; const b=document.createElement('strong'); b.textContent=v; const c=document.createElement('small'); c.textContent=s;
+    t.append(a,b,c); $('tiles').append(t); }
+  const max = Math.max(1, ...days.map(d=>n(d,'users')));
+  $('rows').innerHTML = '';
+  if (!days.length){ const tr=document.createElement('tr'); const td=document.createElement('td'); td.colSpan=10; td.className='dim'; td.textContent='No plays recorded yet. Numbers appear once people play the live game.'; tr.append(td); $('rows').append(tr); }
+  for (const d of days){
+    const nx = next(d.day);
+    const back = nx > today ? '…' : pct(n(by[nx],'d1Returns'), n(d,'newUsers'));
+    const cells = [d.day, n(d,'users'), n(d,'newUsers'), n(d,'returningUsers'), back, n(d,'runs'), n(d,'firstRuns'),
+      `${n(d,'tutorialStarts')} / ${n(d,'tutorialDone')}`, n(d,'signups'), `${n(d,'missionStarts')} / ${n(d,'missionClears')}`];
+    const tr = document.createElement('tr');
+    cells.forEach((v,i)=>{ const td=document.createElement('td'); td.textContent=v;
+      if (i===1){ const bar=document.createElement('span'); bar.className='bar'; bar.style.width=Math.round(n(d,'users')/max*60)+'px'; td.append(bar); }
+      tr.append(td); });
+    $('rows').append(tr);
+  }
+  $('dash').hidden = false;
+}
+})();
+</script>
+</body>
+</html>

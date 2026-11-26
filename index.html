@@ -149,6 +149,17 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
 .num{font:700 18px var(--display);color:var(--muted);font-variant-numeric:tabular-nums}
 .item.on .num{color:var(--orbit)}
 .big.win{color:var(--flare);font-size:56px}
+.tip{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(28px + env(safe-area-inset-bottom,0px));width:min(92%,420px);
+  background:rgba(21,26,58,.94);border:1px solid rgba(110,231,255,.45);border-radius:14px;padding:12px 16px;text-align:center;
+  font:500 15px var(--body);line-height:1.45;color:var(--ink);box-shadow:0 10px 30px rgba(0,0,0,.4);pointer-events:none;z-index:5}
+.tip b{color:var(--orbit);font-family:var(--display);letter-spacing:.06em}
+.foot{margin:0;font-size:13px;color:var(--muted)}
+.foot .link, .card .fine a{color:var(--muted);font-size:13px}
+.play.danger{background:var(--danger);color:#2b0710;box-shadow:0 0 0 6px rgba(255,93,122,.15)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:14px}
+.kv span:nth-child(odd){color:var(--muted);font-family:var(--display);font-size:12px;letter-spacing:.1em;align-self:center}
+.kv span:nth-child(even){overflow-wrap:anywhere}
+.who.click{cursor:pointer;background:none;border:none;color:inherit;padding:0}
 .rate{font-family:var(--display);font-size:15px;letter-spacing:.12em;color:var(--flare)}
 .rate .off{color:rgba(143,151,201,.3)}
 .rate.lg{font-size:44px;letter-spacing:.08em;line-height:1}
@@ -162,6 +173,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
 
 <div id="app">
   <canvas id="c" aria-label="Starhop game. Tap or press Space to launch from orbit."></canvas>
+  <div class="tip" id="tip" role="status" aria-live="polite" hidden></div>
   <div class="hud" id="hud" hidden>
     <div class="hleft"><div class="score" id="score">0</div><div class="goal" id="hGoal" hidden></div></div>
     <div class="side">
@@ -187,6 +199,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
       <button class="ghost storebtn" id="storeBtn1" type="button">★ STORE</button>
     </div>
     <p class="how">Tap, click or <kbd>Space</kbd> to leave orbit.<br>Skip a planet for bonus points. Every landing earns ★, and so does every ★ you catch. Spend them on trails.</p>
+    <p class="foot"><button class="link" id="howBtn" type="button">Play the tutorial</button> · <a class="link" href="privacy.html" target="_blank" rel="noopener">Privacy</a></p>
   </div>
 
   <div class="panel" id="over" hidden>
@@ -457,6 +470,29 @@ addEventListener('pagehide', ()=>saveProgress(true));
 addEventListener('beforeunload', ()=>saveProgress(false));
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveProgress(true); });
 
+// ---------- analytics: anonymous daily counters in Firestore (no cookies, no personal data) ----------
+const STAT_KEYS = ['users','newUsers','returningUsers','d1Returns','runs','firstRuns','tutorialStarts','tutorialDone','signups','missionStarts','missionClears'];
+let statQueue = [];
+function dayKey(d){ return (d||new Date()).toISOString().slice(0,10); }
+function track(key){
+  if (!STAT_KEYS.includes(key)) return;
+  if (!fb){ if (statQueue.length < 20) statQueue.push(key); return; }
+  const {F, db} = fb;
+  F.setDoc(F.doc(db,'stats',dayKey()), {[key]: F.increment(1)}, {merge:true}).catch(()=>{});
+}
+function trackVisit(){
+  // one "user" per browser per day; the first-seen day lets us measure who comes back the next day
+  const today = dayKey(), meta = _store.meta || {};
+  if (meta.last === today){ return; }
+  track('users');
+  if (!meta.first){ track('newUsers'); meta.first = today; }
+  else {
+    track('returningUsers');
+    const yesterday = dayKey(new Date(Date.now() - 864e5));
+    if (meta.first === yesterday) track('d1Returns');
+  }
+  meta.last = today; _store.meta = meta; flush();
+}
 function withTimeout(p, ms){ return Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej({code:'timeout'}), ms))]); }
 
 const APP_CHECK_SITE_KEY = '6LfGNzQuAAAAADR39HKyMh_W_PWwpLrhKdduAM2I';   // reCAPTCHA Enterprise (Fraud Defense) site key; public by design
@@ -481,6 +517,7 @@ async function initAccount(){
   try { fb = await withTimeout(loadFirebase(), 15000); }
   catch(e){ acctState='offline'; renderAcct(); renderRanks(); return; }
   watchRanks();
+  trackVisit(); statQueue.splice(0).forEach(track);
   fb.A.onAuthStateChanged(fb.auth, async user => {
     if (pendingSignup) return;                       // signup() finishes the routing itself
     if (!user){
@@ -531,6 +568,26 @@ function leavePilot(){
   lastCloud=''; lastBoardBest=0;
   if (state==='menu') reset();
   refreshUI();
+}
+async function deleteAccount(pass){
+  const err=$('authErr'), go=$('authGo');
+  const user = fb && fb.auth.currentUser; if (!user) return;
+  go.disabled=true; err.textContent='';
+  const {A, F, db} = fb;
+  try { await A.reauthenticateWithCredential(user, A.EmailAuthProvider.credential(user.email, pass)); }
+  catch(e){ go.disabled=false; err.textContent = authError(e); return; }
+  try {
+    // data first (the rules need the login), then the login itself
+    await F.deleteDoc(F.doc(db,'leaderboard',uid));
+    await F.deleteDoc(F.doc(db,'runs',uid)).catch(()=>{});
+    await F.deleteDoc(F.doc(db,'callsigns',callsign.toLowerCase())).catch(()=>{});
+    await F.deleteDoc(F.doc(db,'users',uid));
+    const gone = callsign;
+    _store.pilotCache = null; flush();
+    await A.deleteUser(user);
+    authView='login'; showPanel('menu');
+    setTimeout(()=>toastNote(`${gone} and all its data are deleted.`), 50);
+  } catch(e){ go.disabled=false; err.textContent = 'Couldn’t finish deleting your account. Check your connection and try again.'; }
 }
 async function logout(){
   saveProgress(true);
@@ -585,6 +642,7 @@ async function signup(name, email, pass){
       const data = await createProfile(name);
       try { await fb.A.sendEmailVerification(cred.user); } catch(e){}
       pendingSignup = false;
+      track('signups');
       login(data, false);
       setTimeout(()=>{ setSync(''); toastNote(`Welcome, ${name}! We sent a verification link to ${userEmail}.`); }, 50);
     } catch(e){
@@ -677,9 +735,9 @@ function renderAcct(){
   if (acctState==='loading'){ const w=el('div','who'); w.append(el('span','spin'), el('span','dim','Connecting…')); a.append(w); return; }
   if (acctState==='offline'){ a.append(el('span','who dim','Accounts are offline. Progress saves in this browser.')); return; }
   if (mode==='pilot'){
-    const w=el('div','who'); const d=el('span','dot',callsign.slice(0,1).toUpperCase()); d.style.background=myColor;
+    const w=btn('who click','',()=>openAuth('account')); w.setAttribute('aria-label','Your account'); const d=el('span','dot',callsign.slice(0,1).toUpperCase()); d.style.background=myColor;
     w.append(d, el('span',null,callsign));
-    a.append(w, btn('ghost','LEADERBOARD',()=>showPanel('ranks')), btn('link','Log out',logout));
+    a.append(w, btn('ghost','LEADERBOARD',()=>showPanel('ranks')), btn('link','Account',()=>openAuth('account')));
   } else if (acctState==='noprofile'){
     a.append(el('span','who dim','Almost done: pick a callsign'), btn('ghost','FINISH SIGN-UP',()=>openAuth('callsign')), btn('link','Log out',logout));
   } else {
@@ -701,7 +759,30 @@ function renderAuth(){
       el('p',null,'Check your connection and reload the page. You can keep playing as a guest meanwhile; your progress is saved in this browser.'), back);
     return;
   }
-  if (acctState==='in'){ showPanel('menu'); return; }
+  if (acctState==='in' && authView!=='account' && authView!=='delete'){ showPanel('menu'); return; }
+  if (acctState==='in' && authView==='account'){
+    c.append(el('span','eyebrow','Account'), el('h2',null,'Your pilot'));
+    const kv = el('div','kv'); kv.append(el('span',null,'CALLSIGN'), el('span',null,callsign), el('span',null,'EMAIL'), el('span',null,userEmail||'—'),
+      el('span',null,'BEST'), el('span',null,String(best)), el('span',null,'STARS'), el('span',null,'★'+bank));
+    const priv = el('p','fine'); const pl = el('a',null,'Privacy policy'); pl.href='privacy.html'; pl.target='_blank'; pl.rel='noopener'; priv.append(pl);
+    const row = el('div','row'); row.append(btn('ghost','LOG OUT',logout), btn('link','Delete my account',()=>{ authView='delete'; renderAuth(); }));
+    c.append(kv, row, priv, back);
+    return;
+  }
+  if (acctState==='in' && authView==='delete'){
+    c.append(el('span','eyebrow','Delete account'), el('h2',null,'Delete your pilot for good?'),
+      el('p',null,`This permanently deletes ${callsign}: your login, your saved progress, your leaderboard entry and your callsign. It can’t be undone. Progress saved in this browser as a guest stays.`));
+    const form = el('form','authform'); form.noValidate = true;
+    const [f1,i1] = field('ENTER YOUR PASSWORD TO CONFIRM','delPass','password','current-password');
+    const err = el('div','err'); err.id='authErr';
+    const go = btn('play danger','DELETE MY ACCOUNT',null); go.type='submit'; go.id='authGo';
+    form.append(f1, err, go);
+    form.addEventListener('submit', e=>{ e.preventDefault(); deleteAccount(i1.value); });
+    const keep = btn('link','Keep my account',()=>{ authView='account'; renderAuth(); });
+    c.append(form, keep);
+    setTimeout(()=>i1.focus({preventScroll:true}),30);
+    return;
+  }
   const form = el('form','authform'); form.noValidate = true;
   const err = el('div','err'); err.id='authErr';
   const ok = el('p','okmsg'); ok.id='authOk';
@@ -723,7 +804,9 @@ function renderAuth(){
     const [f2,i2] = field('EMAIL','suEmail','email','email',{placeholder:'you@example.com'});
     const [f3,i3] = field('PASSWORD','suPass','password','new-password',{placeholder:'At least 6 characters'});
     go = btn('play','CREATE ACCOUNT',null); go.type='submit';
-    form.append(f1,f2,f3, err, go, el('p','fine', 'Your pilot starts fresh. Leaderboard scores come from runs you play while logged in.'));
+    const fine = el('p','fine', 'Your pilot starts fresh. Leaderboard scores come from runs you play while logged in. By creating an account you agree to the ');
+    const pl = el('a',null,'privacy policy'); pl.href='privacy.html'; pl.target='_blank'; pl.rel='noopener'; fine.append(pl, '.');
+    form.append(f1,f2,f3, err, go, fine);
     form.addEventListener('submit', e=>{ e.preventDefault(); signup(i1.value, i2.value, i3.value); });
     links.append(btn('link','Already have an account? Log in',()=>{ authView='login'; renderAuth(); }));
     setTimeout(()=>i1.focus({preventScroll:true}),30);
@@ -944,6 +1027,38 @@ function drawHazards(c){
     }
   }
 }
+// ---------- first-time tutorial ----------
+let tut = null, tipTimer = null;
+const TUT_TIPS = {
+  1: 'Your ship is orbiting this planet. <b>Tap</b> (or press Space) when the dotted line points at the <b>glowing ring</b>.',
+  2: 'Caught! Planets start to collapse while you orbit them. The <b>yellow arc</b> shows how long you have. Hop to the next glowing ring.',
+  3: 'Every landing earns <b>★</b> to spend in the Store. Landing on a planet further up, <b>skipping</b> one, scores bonus points.',
+  4: 'You’re ready, pilot! From here, planets spin faster and space gets stranger. Good luck.',
+  miss: 'Missed! No problem. Wait until the dotted line points <b>right at</b> the glowing ring, then tap.'
+};
+function showTip(k, ms){
+  const t = $('tip'); t.innerHTML = TUT_TIPS[k]; t.hidden = false;
+  clearTimeout(tipTimer); if (ms) tipTimer = setTimeout(()=>{ t.hidden = true; }, ms);
+}
+function hideTip(){ clearTimeout(tipTimer); $('tip').hidden = true; }
+function tutLanded(){
+  if (!tut) return;
+  tut.step++;
+  if (tut.step >= 4){
+    showTip(4, 3500); tut = null;
+    _store.tutDone = true; flush(); track('tutorialDone');
+  } else showTip(tut.step);
+}
+function tutMissed(){
+  // in the tutorial a miss isn't the end: put the ship back in orbit
+  const s = ship;
+  if (s.p.broken){ s.p.broken=false; if (!planets.includes(s.p)) planets.push(s.p); }
+  burst(s.x,s.y,'110,231,255',20,160);
+  s.mode='orbit'; s.otime=0; s.oR=s.p.R+20; s.from=null; s.a=-Math.PI/2; s.p.collapse=0; s.vx=s.vy=0; placeOnOrbit();
+  trail = []; camY = Math.min(camY, s.p.y - H*0.5);
+  showTip('miss'); beep(330,0.2,'triangle',0.05,0);
+}
+
 function reset(){
   rnd = curMission ? mulberry32(curMission.seed) : Math.random;
   hazards = [];
@@ -954,7 +1069,7 @@ function reset(){
   ship = {mode:'orbit', p, a:-Math.PI/2, oR:p.R, x:0,y:0,vx:0,vy:0, ft:0, otime:0, from:null};
   placeOnOrbit();
 }
-function orbitLimit(){ if (curMission && curMission.collapse) return curMission.collapse; return Math.max(2.6, 5.5 - score*0.07) + upg.core*0.6; }
+function orbitLimit(){ if (tut) return tut.step===1 ? 9999 : 9; if (curMission && curMission.collapse) return curMission.collapse; return Math.max(2.6, 5.5 - score*0.07) + upg.core*0.6; }
 function earn(n, x, y){
   const g = n * (runDouble ? 2 : 1);
   runStars += g; bank += g;
@@ -987,6 +1102,7 @@ function capture(p){
   s.mode='orbit'; s.p=p; s.a=Math.atan2(ry,rx); s.oR=Math.hypot(rx,ry); s.otime=0;
   if (p.idx > maxIdx){
     const gained = p.idx - maxIdx; score += gained; maxIdx = p.idx;
+    if (tut) tutLanded();
     if (curMission){ if (gained>1){ mSkips++; pops.push({x:s.x, y:s.y-14, t:0, text:'SKIP!'}); } }
     else earn(Math.random() < upg.lucky*0.15 ? 2 : 1, s.x, s.y);
     updateHud(true);
@@ -1000,6 +1116,7 @@ function capture(p){
 }
 function die(cause){
   if (state!=='play') return;
+  if (tut){ tutMissed(); return; }
   if (curMission){
     deathCause = cause; state='dead';
     burst(ship.x,ship.y,'255,93,122',36,240); shake = reduceMotion?0:14;
@@ -1012,6 +1129,7 @@ function die(cause){
   burst(ship.x,ship.y,'255,93,122',36,240); shake = reduceMotion?0:14;
   beep(180,0.45,'sawtooth',0.07,-140);
   games++;
+  if (!_store.firstRunDone){ _store.firstRunDone = true; track('firstRuns'); }
   setSync(mode==='pilot' ? 'Saving to your pilot profile…' : 'Guest progress is saved in this browser. Sign up to save it to the cloud and join the leaderboard.');
   saveProgress(true);
   postRunScore(score);
@@ -1198,6 +1316,11 @@ function draw(){
   drawHazards(ctx);
   for (const p of planets){
     if (p.broken) continue;
+    if (tut && ship && ship.mode==='orbit' && p.idx===ship.p.idx+1){
+      const k = 0.5+0.5*Math.sin(time*5);
+      ctx.save(); ctx.shadowColor='#6ee7ff'; ctx.shadowBlur=18; ctx.strokeStyle=`rgba(110,231,255,${0.55+0.45*k})`; ctx.lineWidth=3+2*k;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.R,0,Math.PI*2); ctx.stroke(); ctx.restore();
+    }
     const active = ship && ship.p===p && ship.mode==='orbit';
     ctx.strokeStyle = active ? 'rgba(110,231,255,.55)' : 'rgba(143,151,201,.28)';
     ctx.lineWidth = 1.5; ctx.setLineDash(active?[]:[4,7]);
@@ -1256,7 +1379,7 @@ function draw(){
     if (ship.mode==='orbit'){
       const d=ship.p.dir, tx=-Math.sin(ship.a)*d, ty=Math.cos(ship.a)*d; ang=Math.atan2(ty,tx);
       if (state==='play' && !(curMission && curMission.blind)){
-        const len = Math.max(40 + upg.sight*25, 90 + upg.sight*45 - score*1.5);
+        const len = tut ? 170 : Math.max(40 + upg.sight*25, 90 + upg.sight*45 - score*1.5);
         const grd = ctx.createLinearGradient(ship.x,ship.y,ship.x+tx*len,ship.y+ty*len);
         grd.addColorStop(0,'rgba(233,236,255,.5)'); grd.addColorStop(1,'rgba(233,236,255,0)');
         ctx.strokeStyle=grd; ctx.lineWidth=1.5; ctx.setLineDash([3,5]);
@@ -1462,6 +1585,7 @@ function checkMission(){
   const prev = rates[m.id] || 0, now = Math.max(prev, got);
   let earned = 0; for (let k=prev+1; k<=now; k++) earned += k===1 ? m.reward : bonusOf(m);
   rates[m.id] = now; if (!missionsDone.includes(m.id)) missionsDone.push(m.id);
+  track('missionClears');
   bank += earned; saveProgress(true);
   lastResult = {got, prev, now, underPar, clean, earned, time:mTime};
   updateHud(true);
@@ -1470,6 +1594,7 @@ function checkMission(){
   setTimeout(()=>showMResult(true), 900);
 }
 function startMission(m){
+  track('missionStarts');
   curMission = m; reset(); state='play';
   mTime=0; mStars=0; mSkips=0; mClose=false; runDouble=false; shieldReady=false;
   for (const id of ['menu','over','auth','ranksPanel','storePanel','missionsPanel','mResult']) $(id).hidden=true;
@@ -1529,6 +1654,9 @@ $('missionsBack').addEventListener('click', ()=>showPanel('menu'));
 function start(){
   curMission=null;
   reset(); state='play'; runStartBest=best;
+  hideTip(); tut = null;
+  if (!_store.tutDone){ tut = {step:1}; showTip(1); track('tutorialStarts'); }
+  track('runs');
   runDouble=false; if (doubles>0){ doubles--; runDouble=true; saveProgress(true); }
   shieldReady = shields>0;
   markRunStart();
@@ -1536,6 +1664,7 @@ function start(){
   $('hud').hidden=false; refreshUI(); updateHud(false);
 }
 function showOver(){
+  hideTip();
   $('overRanks').hidden = acctState==='offline';
   $('cause').textContent = deathCause; $('oScore').textContent = score;
   $('newBest').hidden = !(score>runStartBest && score>0);
@@ -1543,6 +1672,7 @@ function showOver(){
   setTimeout(()=>$('againBtn').focus({preventScroll:true}),50);
 }
 $('playBtn').addEventListener('click', start);
+$('howBtn').addEventListener('click', ()=>{ _store.tutDone = false; flush(); start(); });
 $('againBtn').addEventListener('click', start);
 $('overMenu').addEventListener('click', ()=>showPanel('menu'));
 $('overRanks').addEventListener('click', ()=>{ prevPanel='over'; $('over').hidden=true; $('ranksPanel').hidden=false; renderRanks(); checkAdmin(); });
