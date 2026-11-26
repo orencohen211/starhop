@@ -14,7 +14,10 @@ A one-button space game. Orbit a planet, launch at the right moment, and hop fro
 - **Endless mode** with wormholes, black holes, asteroid belts, bumpers and glass planets.
 - **20 missions** in two packs, each rated up to 3 stars (clear, beat par, no close calls).
 - **Store** with trails, ships, upgrades, power-ups, planet themes, and launch and landing effects.
-- Progress is saved in your browser.
+- **Accounts**: sign up with email and a unique callsign, log in on any device, reset your password by email.
+- **Cloud saves and a global leaderboard** (Firebase Authentication + Firestore). Guests can still play; their progress is saved in the browser.
 
 ## Development
 The whole game is a single self-contained file, `index.html`, with no build step. Open it in a browser to play locally.
+
+Accounts use Firebase (project `starhop-79786`). The database security rules live in `firestore.rules`; after changing them, paste them into Firebase console → Firestore Database → Rules and publish.

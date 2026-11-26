@@ -97,6 +97,12 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
   border-radius:10px;padding:11px 12px;width:100%}
 .card input:focus{border-color:var(--orbit)}
 .card .err{color:var(--danger);font-size:13px;min-height:1.2em}
+.authform{display:flex;flex-direction:column;gap:12px}
+.fld{display:flex;flex-direction:column;gap:6px}
+.card .okmsg{color:var(--orbit);font-size:13px;margin:0}
+.card .okmsg:empty{display:none}
+.card .fine{font-size:12px}
+.acct .note{flex-basis:100%;text-align:center;color:var(--orbit)}
 .card .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .card .play{font-size:16px;padding:12px 26px;align-self:flex-start}
 .callsign{font-family:var(--display);font-size:30px;font-weight:700;letter-spacing:.06em;color:var(--orbit);margin:0}
@@ -382,10 +388,23 @@ function currentProgress(){ return {best, stars:bank, games, owned:owned.slice()
 const guestStart = _store.guest || {best:_store.starhopBest, stars:_store.starhopStars, games:_store.starhopGames, owned:_store.starhopOwned, trail:_store.starhopTrail};
 applyProgress(guestStart);
 
-// cloud identity + store
-let userCap=null, db=null, uid=null, pilotRef=null, callsign='', myColor='#6ee7ff';
-let acctState = 'loading';     // loading | unavailable | new | returning | error
-let cloudBusy=false, cloudDirty=false, lastCloud='';
+// ---------- accounts: Firebase email login + Firestore saves ----------
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDHAesr359PoFBoetJNEQ9pIZX8kW9MgKc",
+  authDomain: "starhop-79786.firebaseapp.com",
+  projectId: "starhop-79786",
+  storageBucket: "starhop-79786.firebasestorage.app",
+  messagingSenderId: "529600027715",
+  appId: "1:529600027715:web:f4234e0e5740eaf06f08f6"
+};
+const FB_BASE = 'https://www.gstatic.com/firebasejs/10.12.2/';
+let fb = null;                 // {A: auth module, F: firestore module, auth, db}
+let uid = null, callsign = '', userEmail = '';
+let acctState = 'loading';     // loading | offline | out | noprofile | in | error
+let authView = 'login';        // login | signup | reset | callsign
+let pendingSignup = false;
+let cloudBusy=false, cloudDirty=false, lastCloud='', lastBoardBest=-1;
+const myColor = '#6ee7ff';
 
 function saveProgress(toCloud){
   if (mode==='guest') _store.guest = currentProgress();
@@ -395,13 +414,18 @@ function saveProgress(toCloud){
   if (toCloud && mode==='pilot') cloudSave();
 }
 async function cloudSave(){
-  if (mode!=='pilot' || !pilotRef) return;
+  if (mode!=='pilot' || !fb || !uid) return;
   const body = currentProgress(), json = JSON.stringify(body);
-  if (json===lastCloud) return;
+  const boardDirty = body.best !== lastBoardBest;
+  if (json===lastCloud && !boardDirty) return;
   if (cloudBusy){ cloudDirty=true; return; }
   cloudBusy=true;
-  try { await pilotRef.update(body); lastCloud=json; setSync('Saved to your pilot profile.'); }
-  catch(e){ setSync('Could not reach the cloud save. Your progress is kept on this device and will sync next time.'); }
+  const {F, db} = fb;
+  try {
+    if (json!==lastCloud){ await F.setDoc(F.doc(db,'users',uid), {...body, callsign, updatedAt:F.serverTimestamp()}, {merge:true}); lastCloud=json; }
+    if (boardDirty){ await F.setDoc(F.doc(db,'leaderboard',uid), {callsign, best:body.best, updatedAt:F.serverTimestamp()}); lastBoardBest=body.best; }
+    setSync('Saved to your pilot profile.');
+  } catch(e){ setSync('Could not reach the cloud save. Your progress is kept on this device and will sync next time.'); }
   cloudBusy=false;
   if (cloudDirty){ cloudDirty=false; cloudSave(); }
 }
@@ -412,26 +436,33 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 
 function withTimeout(p, ms){ return Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej({code:'timeout'}), ms))]); }
 
+async function loadFirebase(){
+  const [appM, A, F] = await Promise.all([import(FB_BASE+'firebase-app.js'), import(FB_BASE+'firebase-auth.js'), import(FB_BASE+'firebase-firestore.js')]);
+  const app = appM.initializeApp(FIREBASE_CONFIG);
+  return {A, F, auth:A.getAuth(app), db:F.getFirestore(app)};
+}
 async function initAccount(){
   acctState='loading'; renderAcct();
-  const c = window.claude;
-  if (!c || typeof c.use!=='function'){ acctState='unavailable'; renderAcct(); return; }
-  try { [userCap, db] = await Promise.all([c.use('user'), c.use('db')]); } catch(e){}
-  if (userCap){ try { const me = await userCap.me(); uid = me.id; myColor = me.color || myColor; suggestName = (me.name||'').split(/\s+/)[0] || ''; } catch(e){} }
-  if (!db || !uid){ acctState='unavailable'; renderAcct(); return; }
-  pilotRef = db.doc('pilots/'+uid);
+  try { fb = await withTimeout(loadFirebase(), 15000); }
+  catch(e){ acctState='offline'; renderAcct(); renderRanks(); return; }
   watchRanks();
-  try {
-    const snap = await withTimeout(pilotRef.get(), 10000);
-    if (snap.exists){
-      acctState='returning';
-      const data = snap.data();
-      if (!_store.loggedOut) login(data, true);
-    } else acctState='new';
-  } catch(e){ acctState='error'; }
-  renderAcct();
+  fb.A.onAuthStateChanged(fb.auth, async user => {
+    if (pendingSignup) return;                       // signup() finishes the routing itself
+    if (!user){
+      if (mode==='pilot') leavePilot();
+      uid=null; userEmail=''; acctState='out';
+      renderAcct(); renderRanks(); if (!$('auth').hidden) renderAuth();
+      return;
+    }
+    uid = user.uid; userEmail = user.email || '';
+    try {
+      const snap = await withTimeout(fb.F.getDoc(fb.F.doc(fb.db,'users',uid)), 10000);
+      if (snap.exists() && snap.data().callsign) login(snap.data(), $('auth').hidden);
+      else { acctState='noprofile'; authView='callsign'; if (!$('auth').hidden) renderAuth(); }
+    } catch(e){ acctState='error'; }
+    renderAcct();
+  });
 }
-let suggestName='';
 function login(data, silent){
   // if a device-only cache for this pilot is ahead (e.g. tab closed before sync), keep the higher values
   const cache = _store.pilotCache && _store.pilotCache.uid===uid ? cleanProgress(_store.pilotCache) : null;
@@ -443,55 +474,116 @@ function login(data, silent){
     merged.rates = {...cloud.rates}; for (const k in cache.rates) merged.rates[k] = Math.max(merged.rates[k]||0, cache.rates[k]);
   }
   callsign = String(data.callsign||'Pilot').slice(0,16);
-  mode='pilot'; applyProgress(merged); lastCloud = JSON.stringify(cleanProgress(data));
-  _store.loggedOut=false; saveProgress(true);
-  acctState='returning';
+  mode='pilot'; applyProgress(merged); lastCloud = JSON.stringify(cloud);
+  saveProgress(true);
+  acctState='in';
   if (state==='menu') reset();
   refreshUI(); renderAcct(); renderRanks();
   if (!silent) showPanel('menu');
 }
-function logout(){
-  saveProgress(true);
+function leavePilot(){
   mode='guest'; callsign='';
   applyProgress(_store.guest);
-  _store.loggedOut=true; flush();
+  lastCloud=''; lastBoardBest=-1;
   if (state==='menu') reset();
-  refreshUI(); renderAcct(); renderRanks();
+  refreshUI();
 }
+async function logout(){
+  saveProgress(true);
+  try { await fb.A.signOut(fb.auth); } catch(e){}
+}
+
 const NAME_RE = /^[A-Za-z0-9_-]{3,16}$/;
-async function signup(name){
-  const err = $('authErr'), btn = $('authGo');
-  name = name.trim();
-  if (!NAME_RE.test(name)){ err.textContent='Use 3 to 16 letters, numbers, - or _.'; return; }
-  btn.disabled=true; err.textContent='';
+function authError(e){
+  const c = (e && e.code) || '';
+  if (c==='taken') return 'That callsign is taken. Try another.';
+  if (c==='auth/invalid-credential' || c==='auth/wrong-password' || c==='auth/user-not-found' || c==='auth/invalid-login-credentials') return 'That email or password is wrong.';
+  if (c==='auth/invalid-email') return 'That doesn’t look like an email address.';
+  if (c==='auth/email-already-in-use') return 'An account with this email already exists. Log in instead.';
+  if (c==='auth/weak-password') return 'Use a password with at least 6 characters.';
+  if (c==='auth/too-many-requests') return 'Too many tries. Wait a few minutes and try again.';
+  if (c==='auth/network-request-failed' || c==='timeout') return 'Couldn’t reach the server. Check your connection and try again.';
+  if (c==='auth/operation-not-allowed') return 'Email sign-in isn’t switched on for this game yet.';
+  if (c==='permission-denied') return 'The server refused to save your pilot. Try again in a moment.';
+  return 'Something went wrong. Please try again.';
+}
+async function claimCallsign(name){
+  const {F, db} = fb, ref = F.doc(db,'callsigns',name.toLowerCase());
+  await F.runTransaction(db, async tx => {
+    const snap = await tx.get(ref);
+    if (snap.exists()){ if (snap.data().uid !== uid) throw {code:'taken'}; return; }
+    tx.set(ref, {uid});
+  });
+}
+async function createProfile(name){
+  const {F, db} = fb;
+  await claimCallsign(name);
+  const start = cleanProgress(_store.guest || currentProgress());
+  const body = {...start, callsign:name, joined:F.serverTimestamp(), updatedAt:F.serverTimestamp()};
+  await F.setDoc(F.doc(db,'users',uid), body);
+  await F.setDoc(F.doc(db,'leaderboard',uid), {callsign:name, best:start.best, updatedAt:F.serverTimestamp()});
+  lastBoardBest = start.best;
+  return {...start, callsign:name};
+}
+async function signup(name, email, pass){
+  const err=$('authErr'), go=$('authGo');
+  name=name.trim(); email=email.trim();
+  if (!NAME_RE.test(name)){ err.textContent='Callsign: use 3 to 16 letters, numbers, - or _.'; return; }
+  if (pass.length < 6){ err.textContent='Use a password with at least 6 characters.'; return; }
+  go.disabled=true; err.textContent='';
   try {
-    const slot = db.doc('callsigns/'+name.toLowerCase());
-    const lease = await withTimeout(slot.acquire({holder:uid, ttlMs:5000}), 10000);
-    if (!lease.acquired) throw {code:'taken'};
-    const s = await slot.get();
-    const owner = s.exists ? s.data().uid : null;
-    if (owner && owner!==uid) throw {code:'taken'};
-    if (!owner) await slot.set({uid});
-    const start = cleanProgress(_store.guest || currentProgress());
-    const body = {callsign:name, ...start, joined:Date.now()};
-    await pilotRef.set(body);
-    login(body, false);
+    const taken = await withTimeout(fb.F.getDoc(fb.F.doc(fb.db,'callsigns',name.toLowerCase())), 10000);
+    if (taken.exists()) throw {code:'taken'};
+    pendingSignup = true;
+    const cred = await fb.A.createUserWithEmailAndPassword(fb.auth, email, pass);
+    uid = cred.user.uid; userEmail = cred.user.email || email;
+    try {
+      const data = await createProfile(name);
+      try { await fb.A.sendEmailVerification(cred.user); } catch(e){}
+      pendingSignup = false;
+      login(data, false);
+      setTimeout(()=>{ setSync(''); toastNote(`Welcome, ${name}! We sent a verification link to ${userEmail}.`); }, 50);
+    } catch(e){
+      // account exists but the callsign step failed: ask for a callsign next
+      pendingSignup = false; acctState='noprofile'; authView='callsign'; renderAuth(); renderAcct();
+      $('authErr').textContent = authError(e);
+    }
   } catch(e){
-    btn.disabled=false;
-    err.textContent = e && e.code==='taken' ? 'That callsign is taken. Try another.' :
-      e && e.code==='invalid_argument' ? 'Your access to this game is view-only, so a pilot can’t be created. Ask the owner for Contributor access.' :
-      'Could not create your pilot. Check your connection and try again.';
+    pendingSignup = false; go.disabled=false; err.textContent = authError(e);
   }
 }
+async function finishProfile(name){
+  const err=$('authErr'), go=$('authGo');
+  name=name.trim();
+  if (!NAME_RE.test(name)){ err.textContent='Use 3 to 16 letters, numbers, - or _.'; return; }
+  go.disabled=true; err.textContent='';
+  try { const data = await createProfile(name); login(data, false); }
+  catch(e){ go.disabled=false; err.textContent=authError(e); }
+}
+async function doLogin(email, pass){
+  const err=$('authErr'), go=$('authGo');
+  go.disabled=true; err.textContent='';
+  try { await fb.A.signInWithEmailAndPassword(fb.auth, email.trim(), pass); }   // onAuthStateChanged takes it from here
+  catch(e){ go.disabled=false; err.textContent=authError(e); }
+}
+async function doReset(email){
+  const err=$('authErr'), go=$('authGo'), ok=$('authOk');
+  email=email.trim(); if (!email){ err.textContent='Enter the email you signed up with.'; return; }
+  go.disabled=true; err.textContent='';
+  try { await fb.A.sendPasswordResetEmail(fb.auth, email); ok.textContent='If an account uses that email, a reset link is on its way. Check your inbox and spam folder.'; }
+  catch(e){ err.textContent = e && e.code==='auth/invalid-email' ? authError(e) : 'If an account uses that email, a reset link is on its way.'; }
+  go.disabled=false;
+}
+function toastNote(t){ const n=$('acctNote'); if (n){ n.textContent=t; n.hidden=false; } }
 
 // ---------- leaderboard ----------
 let rankRows=null, rankErr=false, rankUnsub=null;
 function watchRanks(){
-  if (!db || rankUnsub) return;
+  if (!fb || rankUnsub) return;
+  const {F, db} = fb;
   const timer = setTimeout(()=>{ if (!rankRows){ rankErr=true; renderRanks(); } }, 10000);
-  rankUnsub = db.collection('pilots').orderBy('best','desc').limit(10).onSnapshot(snap=>{
-    if (!snap.metadata.fromCache) clearTimeout(timer);
-    rankErr=false;
+  rankUnsub = F.onSnapshot(F.query(F.collection(db,'leaderboard'), F.orderBy('best','desc'), F.limit(10)), snap=>{
+    clearTimeout(timer); rankErr=false;
     rankRows = snap.docs.map(d=>({id:d.id, ...d.data()}));
     renderRanks();
   }, ()=>{ clearTimeout(timer); rankErr=true; renderRanks(); });
@@ -499,7 +591,7 @@ function watchRanks(){
 function renderRanks(){
   const list=$('ranksList'), note=$('ranksNote');
   list.textContent='';
-  if (acctState==='unavailable'){ note.textContent='The leaderboard needs this game opened on claude.ai while you’re signed in.'; return; }
+  if (acctState==='offline'){ note.textContent='The leaderboard can’t be reached right now.'; return; }
   if (!rankRows){ note.textContent = rankErr ? 'The leaderboard can’t be reached right now.' : 'Loading pilots…'; return; }
   if (!rankRows.length){ note.textContent='No pilots yet. Create one and set the first record.'; return; }
   rankRows.forEach((r,i)=>{
@@ -509,61 +601,91 @@ function renderRanks(){
     const c=document.createElement('span'); c.className='sc'; c.textContent=Math.max(0,+r.best||0);
     li.append(a,b,c); list.append(li);
   });
-  note.textContent = mode==='pilot' ? '' : 'Create a pilot to get your scores on the board.';
+  note.textContent = mode==='pilot' ? '' : 'Sign up to get your scores on the board.';
 }
 
 // ---------- account UI ----------
 function el(tag, cls, text){ const e=document.createElement(tag); if (cls) e.className=cls; if (text!=null) e.textContent=text; return e; }
 function btn(cls, text, fn){ const b=el('button',cls,text); b.type='button'; b.addEventListener('click',fn); return b; }
+function openAuth(view){ authView=view; prevPanel='menu'; showPanel('auth'); }
 function renderAcct(){
   const a=$('acct'); a.textContent='';
-  if (acctState==='unavailable'){ a.append(el('span','who dim','Progress saves in this browser')); return; }
+  if (acctState==='loading'){ const w=el('div','who'); w.append(el('span','spin'), el('span','dim','Connecting…')); a.append(w); return; }
+  if (acctState==='offline'){ a.append(el('span','who dim','Accounts are offline. Progress saves in this browser.')); return; }
   if (mode==='pilot'){
     const w=el('div','who'); const d=el('span','dot',callsign.slice(0,1).toUpperCase()); d.style.background=myColor;
     w.append(d, el('span',null,callsign));
     a.append(w, btn('ghost','LEADERBOARD',()=>showPanel('ranks')), btn('link','Log out',logout));
-  } else if (acctState==='loading'){
-    const w=el('div','who'); w.append(el('span','spin'), el('span','dim','Checking your account…')); a.append(w);
+  } else if (acctState==='noprofile'){
+    a.append(el('span','who dim','Almost done: pick a callsign'), btn('ghost','FINISH SIGN-UP',()=>openAuth('callsign')), btn('link','Log out',logout));
   } else {
-    const w=el('div','who'); w.append(el('span','dim','Playing as guest')); a.append(w);
-    a.append(btn('ghost', acctState==='returning'?'LOG IN':'LOG IN / SIGN UP', ()=>showPanel('auth')));
-    if (acctState!=='unavailable') a.append(btn('link','Leaderboard',()=>showPanel('ranks')));
+    a.append(el('span','who dim','Playing as guest'), btn('ghost','LOG IN',()=>openAuth('login')), btn('ghost','SIGN UP',()=>openAuth('signup')), btn('link','Leaderboard',()=>showPanel('ranks')));
   }
+  const n=el('p','note'); n.id='acctNote'; n.hidden=true; a.append(n);
+}
+function field(label, id, type, auto, extra){
+  const wrap=el('div','fld'); const l=el('label',null,label); l.htmlFor=id;
+  const i=el('input'); i.id=id; i.type=type; i.autocomplete=auto; i.spellcheck=false; if (extra) Object.assign(i, extra);
+  wrap.append(l,i); return [wrap,i];
 }
 function renderAuth(){
   const c=$('authCard'); c.textContent='';
   const back = btn('link','Back to menu',()=>showPanel('menu'));
-  if (acctState==='loading'){
-    c.append(el('span','eyebrow','Account'), el('h2',null,'Checking your account…'), el('span','spin'));
-  } else if (acctState==='new'){
-    c.append(el('span','eyebrow','Sign up'), el('h2',null,'Create your pilot'),
-      el('p',null,'Your pilot is tied to the Claude account you’re signed in with, so there’s no password. Pick a callsign for the leaderboard.'));
-    const lab=el('label',null,'CALLSIGN'); lab.htmlFor='callsignInput';
-    const inp=el('input'); inp.id='callsignInput'; inp.maxLength=16; inp.autocomplete='off'; inp.spellcheck=false;
-    inp.placeholder='e.g. NovaRider'; inp.value=(suggestName||'').replace(/[^A-Za-z0-9_-]/g,'').slice(0,16);
-    const err=el('div','err'); err.id='authErr';
-    const go=btn('play','CREATE PILOT',()=>signup(inp.value)); go.id='authGo';
-    inp.addEventListener('keydown',e=>{ if (e.key==='Enter'){ e.preventDefault(); signup(inp.value); } });
-    const g = cleanProgress(_store.guest||currentProgress());
-    c.append(lab, inp, err, go,
-      el('p',null, g.best||g.stars ? `Your guest progress comes with you: best ${g.best}, ★${g.stars}.` : 'Your guest progress comes with you.'), back);
-    setTimeout(()=>inp.focus({preventScroll:true}),30);
-  } else if (acctState==='returning'){
-    c.append(el('span','eyebrow','Log in'), el('h2',null,'Welcome back'));
-    const name=el('p','callsign'); name.textContent='…'; c.append(name);
-    const note=el('p',null,'Loading your pilot…'); c.append(note);
-    const go=btn('play','LOG IN',async()=>{ go.disabled=true; try{ const s=await withTimeout(pilotRef.get(),10000); if (s.exists) login(s.data(),false); else { acctState='new'; renderAuth(); renderAcct(); } }catch(e){ go.disabled=false; note.textContent='Could not reach your pilot. Try again.'; } });
-    c.append(go, back);
-    pilotRef.get().then(s=>{ if (s.exists){ const d=s.data(); name.textContent=String(d.callsign||'Pilot').slice(0,16);
-      const p=cleanProgress(d); note.textContent=`Best ${p.best} · ★${p.stars} · ${p.games} flights. Logging in uses this pilot’s saved progress; guest progress stays on this device.`; } }).catch(()=>{});
-  } else if (acctState==='error'){
-    c.append(el('span','eyebrow','Account'), el('h2',null,'Couldn’t reach your pilot'),
-      el('p',null,'Check your connection and try again. You can keep playing as a guest meanwhile.'),
-      btn('play','TRY AGAIN',()=>{ initAccount().then(renderAuth); acctState='loading'; renderAuth(); }), back);
-  } else {
-    c.append(el('span','eyebrow','Account'), el('h2',null,'Accounts aren’t available here'),
-      el('p',null,'Logging in uses your Claude account, so it works when this game is opened on claude.ai while you’re signed in. As a guest, your progress is saved in this browser.'), back);
+  if (acctState==='loading'){ c.append(el('span','eyebrow','Account'), el('h2',null,'Connecting…'), el('span','spin')); return; }
+  if (acctState==='offline' || acctState==='error'){
+    c.append(el('span','eyebrow','Account'), el('h2',null,'Accounts can’t be reached'),
+      el('p',null,'Check your connection and reload the page. You can keep playing as a guest meanwhile; your progress is saved in this browser.'), back);
+    return;
   }
+  if (acctState==='in'){ showPanel('menu'); return; }
+  const form = el('form','authform'); form.noValidate = true;
+  const err = el('div','err'); err.id='authErr';
+  const ok = el('p','okmsg'); ok.id='authOk';
+  const links = el('div','row');
+  let go;
+  if (authView==='callsign' || acctState==='noprofile'){
+    c.append(el('span','eyebrow','Sign up'), el('h2',null,'Pick your callsign'),
+      el('p',null, `You’re signed in${userEmail ? ' as '+userEmail : ''}. Choose the name other pilots see on the leaderboard.`));
+    const [f1,i1] = field('CALLSIGN','suName','text','username',{maxLength:16,placeholder:'e.g. NovaRider'});
+    go = btn('play','SAVE CALLSIGN',null); go.type='submit';
+    form.append(f1, err, go);
+    form.addEventListener('submit', e=>{ e.preventDefault(); finishProfile(i1.value); });
+    links.append(btn('link','Log out',logout));
+    setTimeout(()=>i1.focus({preventScroll:true}),30);
+  } else if (authView==='signup'){
+    c.append(el('span','eyebrow','Sign up'), el('h2',null,'Create your pilot'),
+      el('p',null,'Save your progress to the cloud, play on any device and join the leaderboard.'));
+    const [f1,i1] = field('CALLSIGN','suName','text','username',{maxLength:16,placeholder:'e.g. NovaRider'});
+    const [f2,i2] = field('EMAIL','suEmail','email','email',{placeholder:'you@example.com'});
+    const [f3,i3] = field('PASSWORD','suPass','password','new-password',{placeholder:'At least 6 characters'});
+    go = btn('play','CREATE ACCOUNT',null); go.type='submit';
+    const g = cleanProgress(_store.guest||currentProgress());
+    form.append(f1,f2,f3, err, go, el('p','fine', g.best||g.stars ? `Your guest progress comes with you: best ${g.best}, ★${g.stars}.` : 'Your guest progress comes with you.'));
+    form.addEventListener('submit', e=>{ e.preventDefault(); signup(i1.value, i2.value, i3.value); });
+    links.append(btn('link','Already have an account? Log in',()=>{ authView='login'; renderAuth(); }));
+    setTimeout(()=>i1.focus({preventScroll:true}),30);
+  } else if (authView==='reset'){
+    c.append(el('span','eyebrow','Forgot password'), el('h2',null,'Reset your password'),
+      el('p',null,'Enter your email and we’ll send you a link to choose a new password.'));
+    const [f1,i1] = field('EMAIL','rsEmail','email','email',{placeholder:'you@example.com'});
+    go = btn('play','SEND RESET LINK',null); go.type='submit';
+    form.append(f1, err, ok, go);
+    form.addEventListener('submit', e=>{ e.preventDefault(); doReset(i1.value); });
+    links.append(btn('link','Back to log in',()=>{ authView='login'; renderAuth(); }));
+    setTimeout(()=>i1.focus({preventScroll:true}),30);
+  } else {
+    c.append(el('span','eyebrow','Log in'), el('h2',null,'Welcome back, pilot'));
+    const [f1,i1] = field('EMAIL','liEmail','email','email',{placeholder:'you@example.com'});
+    const [f2,i2] = field('PASSWORD','liPass','password','current-password');
+    go = btn('play','LOG IN',null); go.type='submit';
+    form.append(f1,f2, err, go);
+    form.addEventListener('submit', e=>{ e.preventDefault(); doLogin(i1.value, i2.value); });
+    links.append(btn('link','Forgot password?',()=>{ authView='reset'; renderAuth(); }),
+                 btn('link','New here? Create an account',()=>{ authView='signup'; renderAuth(); }));
+    setTimeout(()=>i1.focus({preventScroll:true}),30);
+  }
+  go.id='authGo';
+  c.append(form, links, back);
 }
 function showPanel(which){
   $('menu').hidden = which!=='menu';
@@ -827,7 +949,7 @@ function die(cause){
   burst(ship.x,ship.y,'255,93,122',36,240); shake = reduceMotion?0:14;
   beep(180,0.45,'sawtooth',0.07,-140);
   games++;
-  setSync(mode==='pilot' ? 'Saving to your pilot profile…' : (acctState==='unavailable' ? 'Your progress is saved in this browser.' : 'Guest progress is saved in this browser. Log in to save it to your account and join the leaderboard.'));
+  setSync(mode==='pilot' ? 'Saving to your pilot profile…' : 'Guest progress is saved in this browser. Sign up to save it to the cloud and join the leaderboard.');
   saveProgress(true);
   setTimeout(showOver, 700);
 }
@@ -1349,7 +1471,7 @@ function start(){
   $('hud').hidden=false; refreshUI(); updateHud(false);
 }
 function showOver(){
-  $('overRanks').hidden = acctState==='unavailable';
+  $('overRanks').hidden = acctState==='offline';
   $('cause').textContent = deathCause; $('oScore').textContent = score;
   $('newBest').hidden = !(score>runStartBest && score>0);
   $('hud').hidden=true; showPanel('over'); refreshUI();
