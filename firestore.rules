@@ -7,6 +7,25 @@ service cloud.firestore {
 
     function signedIn() { return request.auth != null; }
     function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+    function isAdmin() { return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)); }
+    function isBanned(uid) { return exists(/databases/$(database)/documents/banned/$(uid)); }
+
+    // Seconds since this pilot's current run started (stamped by the server).
+    function runSeconds(uid) {
+      return (request.time.toMillis()
+        - get(/databases/$(database)/documents/runs/$(uid)).data.startedAt.toMillis()) / 1000;
+    }
+    // A new best must be possible in the time the run has lasted:
+    // at most 2 points per second plus 5, and the run must be under 30 minutes old.
+    // (The best real play measured is about 1.4 points per second.)
+    function plausibleBest(uid) {
+      let newBest = request.resource.data.best;
+      let oldBest = resource == null ? 0 : resource.data.best;
+      return newBest <= oldBest
+        || (exists(/databases/$(database)/documents/runs/$(uid))
+            && runSeconds(uid) <= 1800
+            && newBest <= runSeconds(uid) * 2 + 5);
+    }
 
     // Each pilot's private save: only that pilot can read or change it.
     match /users/{uid} {
@@ -16,6 +35,14 @@ service cloud.firestore {
         && request.resource.data.callsign.size() >= 3
         && request.resource.data.callsign.size() <= 16
         && request.resource.data.size() < 40;
+    }
+
+    // When a logged-in run starts, the server stamps the time.
+    match /runs/{uid} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['startedAt'])
+        && request.resource.data.startedAt == request.time;
     }
 
     // Callsigns are unique: the first pilot to claim one owns it.
@@ -29,19 +56,32 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.uid == request.auth.uid;
     }
 
-    // Public leaderboard: anyone can read, each pilot writes only their own row,
-    // using a callsign they own.
+    // Public leaderboard: anyone can read; each pilot writes only their own row,
+    // under a callsign they own, with a score that fits the run's real duration.
     match /leaderboard/{uid} {
       allow read: if true;
       allow create, update: if isOwner(uid)
+        && !isBanned(uid)
         && request.resource.data.keys().hasOnly(['callsign', 'best', 'updatedAt'])
         && request.resource.data.best is int
         && request.resource.data.best >= 0
-        && request.resource.data.best <= 100000
         && request.resource.data.updatedAt == request.time
         && request.resource.data.callsign is string
-        && get(/databases/$(database)/documents/callsigns/$(request.resource.data.callsign.lower())).data.uid == request.auth.uid;
-      allow delete: if isOwner(uid);
+        && get(/databases/$(database)/documents/callsigns/$(request.resource.data.callsign.lower())).data.uid == request.auth.uid
+        && plausibleBest(uid);
+      allow delete: if isOwner(uid) || isAdmin();
+    }
+
+    // Admins are added by hand in the Firebase console (a document named after their user ID).
+    match /admins/{uid} {
+      allow read: if isOwner(uid);
+      allow write: if false;
+    }
+
+    // Banned pilots can't post to the leaderboard. Only admins can ban or unban.
+    match /banned/{uid} {
+      allow read: if isAdmin() || isOwner(uid);
+      allow write: if isAdmin();
     }
   }
 }

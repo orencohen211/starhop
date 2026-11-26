@@ -112,6 +112,9 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
 .ranks .pos{color:var(--muted)}
 .ranks .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .ranks .sc{font-weight:700}
+.ranks li:has(.mod){grid-template-columns:28px 1fr auto}
+.ranks .mod{grid-column:1/-1;display:flex;gap:10px;justify-content:flex-end;font-size:12px}
+.ranks .mod .link{font-size:12px;padding:0}
 .spin{width:22px;height:22px;border-radius:50%;border:2px solid rgba(143,151,201,.3);border-top-color:var(--orbit);animation:sp 0.9s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
 /* store */
@@ -403,7 +406,7 @@ let uid = null, callsign = '', userEmail = '';
 let acctState = 'loading';     // loading | offline | out | noprofile | in | error
 let authView = 'login';        // login | signup | reset | callsign
 let pendingSignup = false;
-let cloudBusy=false, cloudDirty=false, lastCloud='', lastBoardBest=-1;
+let cloudBusy=false, cloudDirty=false, lastCloud='', lastBoardBest=0, isAdmin=false, runStartP=null;
 const myColor = '#6ee7ff';
 
 function saveProgress(toCloud){
@@ -416,29 +419,61 @@ function saveProgress(toCloud){
 async function cloudSave(){
   if (mode!=='pilot' || !fb || !uid) return;
   const body = currentProgress(), json = JSON.stringify(body);
-  const boardDirty = body.best !== lastBoardBest;
-  if (json===lastCloud && !boardDirty) return;
+  if (json===lastCloud) return;
   if (cloudBusy){ cloudDirty=true; return; }
   cloudBusy=true;
   const {F, db} = fb;
   try {
-    if (json!==lastCloud){ await F.setDoc(F.doc(db,'users',uid), {...body, callsign, updatedAt:F.serverTimestamp()}, {merge:true}); lastCloud=json; }
-    if (boardDirty){ await F.setDoc(F.doc(db,'leaderboard',uid), {callsign, best:body.best, updatedAt:F.serverTimestamp()}); lastBoardBest=body.best; }
-    setSync('Saved to your pilot profile.');
+    await F.setDoc(F.doc(db,'users',uid), {...body, callsign, updatedAt:F.serverTimestamp()}, {merge:true}); lastCloud=json;
+    if (!boardMsg) setSync('Saved to your pilot profile.');
   } catch(e){ setSync('Could not reach the cloud save. Your progress is kept on this device and will sync next time.'); }
   cloudBusy=false;
   if (cloudDirty){ cloudDirty=false; cloudSave(); }
 }
 function setSync(t){ $('sync').textContent = t; }
+let boardMsg = '';
+// The server stamps when each logged-in run starts; the leaderboard rules only accept
+// a score that was possible in the time since then.
+function markRunStart(){
+  if (mode!=='pilot' || !fb || !uid) { runStartP = null; return; }
+  const {F, db} = fb;
+  runStartP = F.setDoc(F.doc(db,'runs',uid), {startedAt:F.serverTimestamp()}).then(()=>true, ()=>false);
+}
+async function postRunScore(runScore){
+  boardMsg = '';
+  if (mode!=='pilot' || !fb || !uid || !runStartP || runScore <= lastBoardBest) return;
+  const started = await runStartP; runStartP = null;
+  if (!started) return;
+  const {F, db} = fb;
+  try {
+    await F.setDoc(F.doc(db,'leaderboard',uid), {callsign, best:runScore, updatedAt:F.serverTimestamp()});
+    lastBoardBest = runScore; boardMsg = 'New leaderboard best!';
+  } catch(e){
+    boardMsg = e && e.code==='permission-denied' ? 'This score couldn’t be verified, so it wasn’t posted to the leaderboard.' : 'Couldn’t reach the leaderboard. Your next best run will be posted.';
+  }
+  setSync(boardMsg);
+}
 addEventListener('pagehide', ()=>saveProgress(true));
 addEventListener('beforeunload', ()=>saveProgress(false));
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveProgress(true); });
 
 function withTimeout(p, ms){ return Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej({code:'timeout'}), ms))]); }
 
+const APP_CHECK_SITE_KEY = '6LfGNzQuAAAAADR39HKyMh_W_PWwpLrhKdduAM2I';   // reCAPTCHA Enterprise (Fraud Defense) site key; public by design
+function recaptchaReachable(){
+  const probe = fetch('https://www.google.com/recaptcha/enterprise.js', {mode:'no-cors', cache:'force-cache'}).then(()=>true, ()=>false);
+  return Promise.race([probe, new Promise(res=>setTimeout(()=>res(false), 4000))]);
+}
 async function loadFirebase(){
-  const [appM, A, F] = await Promise.all([import(FB_BASE+'firebase-app.js'), import(FB_BASE+'firebase-auth.js'), import(FB_BASE+'firebase-firestore.js')]);
+  const [appM, A, F, C] = await Promise.all([import(FB_BASE+'firebase-app.js'), import(FB_BASE+'firebase-auth.js'),
+    import(FB_BASE+'firebase-firestore.js'), import(FB_BASE+'firebase-app-check.js').catch(()=>null)]);
   const app = appM.initializeApp(FIREBASE_CONFIG);
+  // App Check proves requests come from the real Starhop page. It must start before auth and Firestore are used.
+  // If reCAPTCHA can't load (an ad-blocker, a restricted network), App Check would stall every request,
+  // so skip it for that visit.
+  if (C && await recaptchaReachable()){
+    try { C.initializeAppCheck(app, {provider:new C.ReCaptchaEnterpriseProvider(APP_CHECK_SITE_KEY), isTokenAutoRefreshEnabled:true}); } catch(e){}
+  }
   return {A, F, auth:A.getAuth(app), db:F.getFirestore(app)};
 }
 async function initAccount(){
@@ -475,6 +510,10 @@ function login(data, silent){
   }
   callsign = String(data.callsign||'Pilot').slice(0,16);
   mode='pilot'; applyProgress(merged); lastCloud = JSON.stringify(cloud);
+  const {F, db} = fb;
+  F.getDoc(F.doc(db,'leaderboard',uid)).then(sn=>{ lastBoardBest = sn.exists() ? (+sn.data().best||0) : 0;
+    if (!sn.exists()) F.setDoc(F.doc(db,'leaderboard',uid), {callsign, best:0, updatedAt:F.serverTimestamp()}).catch(()=>{}); }).catch(()=>{});
+  F.getDoc(F.doc(db,'admins',uid)).then(sn=>{ isAdmin = sn.exists(); renderRanks(); }).catch(()=>{ isAdmin=false; });
   saveProgress(true);
   acctState='in';
   if (state==='menu') reset();
@@ -482,9 +521,9 @@ function login(data, silent){
   if (!silent) showPanel('menu');
 }
 function leavePilot(){
-  mode='guest'; callsign='';
+  mode='guest'; callsign=''; isAdmin=false; runStartP=null;
   applyProgress(_store.guest);
-  lastCloud=''; lastBoardBest=-1;
+  lastCloud=''; lastBoardBest=0;
   if (state==='menu') reset();
   refreshUI();
 }
@@ -521,8 +560,8 @@ async function createProfile(name){
   const start = cleanProgress(_store.guest || currentProgress());
   const body = {...start, callsign:name, joined:F.serverTimestamp(), updatedAt:F.serverTimestamp()};
   await F.setDoc(F.doc(db,'users',uid), body);
-  await F.setDoc(F.doc(db,'leaderboard',uid), {callsign:name, best:start.best, updatedAt:F.serverTimestamp()});
-  lastBoardBest = start.best;
+  await F.setDoc(F.doc(db,'leaderboard',uid), {callsign:name, best:0, updatedAt:F.serverTimestamp()});
+  lastBoardBest = 0;
   return {...start, callsign:name};
 }
 async function signup(name, email, pass){
@@ -599,9 +638,29 @@ function renderRanks(){
     const a=document.createElement('span'); a.className='pos'; a.textContent=(i+1)+'.';
     const b=document.createElement('span'); b.className='nm'; b.textContent=String(r.callsign||'Pilot').slice(0,16);
     const c=document.createElement('span'); c.className='sc'; c.textContent=Math.max(0,+r.best||0);
-    li.append(a,b,c); list.append(li);
+    li.append(a,b,c);
+    if (isAdmin && r.id!==uid){
+      const tools=el('span','mod');
+      tools.append(btn('link','Remove',()=>modRow(r,false,tools)), btn('link','Ban',()=>modRow(r,true,tools)));
+      li.append(tools);
+    }
+    list.append(li);
   });
   note.textContent = mode==='pilot' ? '' : 'Sign up to get your scores on the board.';
+}
+
+function modRow(r, ban, tools){
+  tools.textContent='';
+  const name = String(r.callsign||'Pilot').slice(0,16);
+  tools.append(el('span','dim', ban ? `Ban ${name}?` : `Remove ${name}?`),
+    btn('link','Yes',async()=>{
+      const {F, db} = fb;
+      try {
+        if (ban) await F.setDoc(F.doc(db,'banned',r.id), {by:uid, at:F.serverTimestamp()});
+        await F.deleteDoc(F.doc(db,'leaderboard',r.id));
+      } catch(e){ tools.textContent='Couldn’t do that. Check your admin access.'; }
+    }),
+    btn('link','No',()=>renderRanks()));
 }
 
 // ---------- account UI ----------
@@ -660,7 +719,7 @@ function renderAuth(){
     const [f3,i3] = field('PASSWORD','suPass','password','new-password',{placeholder:'At least 6 characters'});
     go = btn('play','CREATE ACCOUNT',null); go.type='submit';
     const g = cleanProgress(_store.guest||currentProgress());
-    form.append(f1,f2,f3, err, go, el('p','fine', g.best||g.stars ? `Your guest progress comes with you: best ${g.best}, ★${g.stars}.` : 'Your guest progress comes with you.'));
+    form.append(f1,f2,f3, err, go, el('p','fine', (g.best||g.stars ? `Your guest progress comes with you: best ${g.best}, ★${g.stars}.` : 'Your guest progress comes with you.') + ' Leaderboard scores come from runs you play while logged in.'));
     form.addEventListener('submit', e=>{ e.preventDefault(); signup(i1.value, i2.value, i3.value); });
     links.append(btn('link','Already have an account? Log in',()=>{ authView='login'; renderAuth(); }));
     setTimeout(()=>i1.focus({preventScroll:true}),30);
@@ -951,6 +1010,7 @@ function die(cause){
   games++;
   setSync(mode==='pilot' ? 'Saving to your pilot profile…' : 'Guest progress is saved in this browser. Sign up to save it to the cloud and join the leaderboard.');
   saveProgress(true);
+  postRunScore(score);
   setTimeout(showOver, 700);
 }
 // ---------- launch + landing effects ----------
@@ -1467,6 +1527,7 @@ function start(){
   reset(); state='play'; runStartBest=best;
   runDouble=false; if (doubles>0){ doubles--; runDouble=true; saveProgress(true); }
   shieldReady = shields>0;
+  markRunStart();
   for (const id of ['menu','over','auth','ranksPanel','storePanel','missionsPanel','mResult']) $(id).hidden=true;
   $('hud').hidden=false; refreshUI(); updateHud(false);
 }
