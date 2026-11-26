@@ -156,6 +156,9 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
 .foot{margin:0;font-size:13px;color:var(--muted)}
 .foot .link, .card .fine a{color:var(--muted);font-size:13px}
 .play.danger{background:var(--danger);color:#2b0710;box-shadow:0 0 0 6px rgba(255,93,122,.15)}
+.ghost.danger{color:var(--danger);border-color:rgba(255,93,122,.55)}
+.ghost.danger:hover{color:#fff;background:var(--danger);border-color:var(--danger)}
+.card .warn{color:var(--danger);font-weight:600}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:14px}
 .kv span:nth-child(odd){color:var(--muted);font-family:var(--display);font-size:12px;letter-spacing:.1em;align-self:center}
 .kv span:nth-child(even){overflow-wrap:anywhere}
@@ -569,13 +572,21 @@ function leavePilot(){
   if (state==='menu') reset();
   refreshUI();
 }
-async function deleteAccount(pass){
+let delVerified = false;
+async function verifyForDelete(pass){
   const err=$('authErr'), go=$('authGo');
   const user = fb && fb.auth.currentUser; if (!user) return;
+  if (!pass){ err.textContent='Enter your password to continue.'; return; }
+  go.disabled=true; err.textContent='';
+  try { await fb.A.reauthenticateWithCredential(user, fb.A.EmailAuthProvider.credential(user.email, pass)); }
+  catch(e){ go.disabled=false; err.textContent = authError(e); return; }
+  delVerified = true; renderAuth();
+}
+async function deleteAccount(){
+  const err=$('authErr'), go=$('authGo');
+  const user = fb && fb.auth.currentUser; if (!user || !delVerified) return;
   go.disabled=true; err.textContent='';
   const {A, F, db} = fb;
-  try { await A.reauthenticateWithCredential(user, A.EmailAuthProvider.credential(user.email, pass)); }
-  catch(e){ go.disabled=false; err.textContent = authError(e); return; }
   try {
     // data first (the rules need the login), then the login itself
     await F.deleteDoc(F.doc(db,'leaderboard',uid));
@@ -585,7 +596,7 @@ async function deleteAccount(pass){
     const gone = callsign;
     _store.pilotCache = null; flush();
     await A.deleteUser(user);
-    authView='login'; showPanel('menu');
+    delVerified=false; authView='login'; showPanel('menu');
     setTimeout(()=>toastNote(`${gone} and all its data are deleted.`), 50);
   } catch(e){ go.disabled=false; err.textContent = 'Couldn’t finish deleting your account. Check your connection and try again.'; }
 }
@@ -765,21 +776,32 @@ function renderAuth(){
     const kv = el('div','kv'); kv.append(el('span',null,'CALLSIGN'), el('span',null,callsign), el('span',null,'EMAIL'), el('span',null,userEmail||'—'),
       el('span',null,'BEST'), el('span',null,String(best)), el('span',null,'STARS'), el('span',null,'★'+bank));
     const priv = el('p','fine'); const pl = el('a',null,'Privacy policy'); pl.href='privacy.html'; pl.target='_blank'; pl.rel='noopener'; priv.append(pl);
-    const row = el('div','row'); row.append(btn('ghost','LOG OUT',logout), btn('link','Delete my account',()=>{ authView='delete'; renderAuth(); }));
+    const row = el('div','row'); row.append(btn('ghost','LOG OUT',logout), btn('ghost danger','DELETE MY ACCOUNT',()=>{ authView='delete'; delVerified=false; renderAuth(); }));
     c.append(kv, row, priv, back);
     return;
   }
+  if (acctState==='in' && authView==='delete' && delVerified){
+    c.append(el('span','eyebrow','Delete account · last check'), el('h2',null,'Are you absolutely sure?'),
+      el('p','warn',`${callsign} will be gone forever. This can’t be undone.`),
+      el('p',null,'Your login, saved progress, leaderboard entry and callsign will all be erased.'));
+    const err = el('div','err'); err.id='authErr';
+    const go = btn('play danger','YES, DELETE FOREVER',()=>deleteAccount()); go.id='authGo';
+    const row = el('div','row'); row.append(go, btn('ghost','NO, KEEP IT',()=>{ authView='account'; delVerified=false; renderAuth(); }));
+    c.append(err, row);
+    return;
+  }
   if (acctState==='in' && authView==='delete'){
-    c.append(el('span','eyebrow','Delete account'), el('h2',null,'Delete your pilot for good?'),
+    c.append(el('span','eyebrow','Delete account · step 1 of 2'), el('h2',null,'Delete your pilot for good?'),
       el('p',null,`This permanently deletes ${callsign}: your login, your saved progress, your leaderboard entry and your callsign. It can’t be undone. Progress saved in this browser as a guest stays.`));
     const form = el('form','authform'); form.noValidate = true;
     const [f1,i1] = field('ENTER YOUR PASSWORD TO CONFIRM','delPass','password','current-password');
     const err = el('div','err'); err.id='authErr';
-    const go = btn('play danger','DELETE MY ACCOUNT',null); go.type='submit'; go.id='authGo';
-    form.append(f1, err, go);
-    form.addEventListener('submit', e=>{ e.preventDefault(); deleteAccount(i1.value); });
-    const keep = btn('link','Keep my account',()=>{ authView='account'; renderAuth(); });
-    c.append(form, keep);
+    const go = btn('play danger','CONTINUE',null); go.type='submit'; go.id='authGo';
+    const keep = btn('ghost','KEEP MY ACCOUNT',()=>{ authView='account'; renderAuth(); });
+    const row = el('div','row'); row.append(go, keep);
+    form.append(f1, err, row);
+    form.addEventListener('submit', e=>{ e.preventDefault(); verifyForDelete(i1.value); });
+    c.append(form);
     setTimeout(()=>i1.focus({preventScroll:true}),30);
     return;
   }
