@@ -513,12 +513,17 @@ function login(data, silent){
   const {F, db} = fb;
   F.getDoc(F.doc(db,'leaderboard',uid)).then(sn=>{ lastBoardBest = sn.exists() ? (+sn.data().best||0) : 0;
     if (!sn.exists()) F.setDoc(F.doc(db,'leaderboard',uid), {callsign, best:0, updatedAt:F.serverTimestamp()}).catch(()=>{}); }).catch(()=>{});
-  F.getDoc(F.doc(db,'admins',uid)).then(sn=>{ isAdmin = sn.exists(); renderRanks(); }).catch(()=>{ isAdmin=false; });
+  checkAdmin();
   saveProgress(true);
   acctState='in';
   if (state==='menu') reset();
   refreshUI(); renderAcct(); renderRanks();
   if (!silent) showPanel('menu');
+}
+function checkAdmin(){
+  if (mode!=='pilot' || !fb || !uid) return;
+  const {F, db} = fb;
+  F.getDoc(F.doc(db,'admins',uid)).then(sn=>{ const was=isAdmin; isAdmin = sn.exists(); if (was!==isAdmin) renderRanks(); }).catch(()=>{});
 }
 function leavePilot(){
   mode='guest'; callsign=''; isAdmin=false; runStartP=null;
@@ -557,7 +562,7 @@ async function claimCallsign(name){
 async function createProfile(name){
   const {F, db} = fb;
   await claimCallsign(name);
-  const start = cleanProgress(_store.guest || currentProgress());
+  const start = cleanProgress({});   // every new pilot starts fresh
   const body = {...start, callsign:name, joined:F.serverTimestamp(), updatedAt:F.serverTimestamp()};
   await F.setDoc(F.doc(db,'users',uid), body);
   await F.setDoc(F.doc(db,'leaderboard',uid), {callsign:name, best:0, updatedAt:F.serverTimestamp()});
@@ -646,7 +651,7 @@ function renderRanks(){
     }
     list.append(li);
   });
-  note.textContent = mode==='pilot' ? '' : 'Sign up to get your scores on the board.';
+  note.textContent = mode!=='pilot' ? 'Sign up to get your scores on the board.' : isAdmin ? 'You’re an admin: use Remove or Ban on other pilots’ rows.' : '';
 }
 
 function modRow(r, ban, tools){
@@ -718,8 +723,7 @@ function renderAuth(){
     const [f2,i2] = field('EMAIL','suEmail','email','email',{placeholder:'you@example.com'});
     const [f3,i3] = field('PASSWORD','suPass','password','new-password',{placeholder:'At least 6 characters'});
     go = btn('play','CREATE ACCOUNT',null); go.type='submit';
-    const g = cleanProgress(_store.guest||currentProgress());
-    form.append(f1,f2,f3, err, go, el('p','fine', (g.best||g.stars ? `Your guest progress comes with you: best ${g.best}, ★${g.stars}.` : 'Your guest progress comes with you.') + ' Leaderboard scores come from runs you play while logged in.'));
+    form.append(f1,f2,f3, err, go, el('p','fine', 'Your pilot starts fresh. Leaderboard scores come from runs you play while logged in.'));
     form.addEventListener('submit', e=>{ e.preventDefault(); signup(i1.value, i2.value, i3.value); });
     links.append(btn('link','Already have an account? Log in',()=>{ authView='login'; renderAuth(); }));
     setTimeout(()=>i1.focus({preventScroll:true}),30);
@@ -758,7 +762,7 @@ function showPanel(which){
   if (which!=='over' && which!=='mresult' && (state==='dead' || state==='won')){ curMission=null; state='menu'; reset(); }
   if (which==='missions') renderMissions();
   if (which==='auth') renderAuth();
-  if (which==='ranks') renderRanks();
+  if (which==='ranks'){ renderRanks(); checkAdmin(); }
   if (which==='menu') { renderAcct(); refreshUI(); }
 }
 $('ranksBack').addEventListener('click',()=>showPanel(prevPanel));
@@ -1541,7 +1545,7 @@ function showOver(){
 $('playBtn').addEventListener('click', start);
 $('againBtn').addEventListener('click', start);
 $('overMenu').addEventListener('click', ()=>showPanel('menu'));
-$('overRanks').addEventListener('click', ()=>{ prevPanel='over'; $('over').hidden=true; $('ranksPanel').hidden=false; renderRanks(); });
+$('overRanks').addEventListener('click', ()=>{ prevPanel='over'; $('over').hidden=true; $('ranksPanel').hidden=false; renderRanks(); checkAdmin(); });
 $('acct').addEventListener('click', ()=>{ prevPanel='menu'; }, true);
 $('mute1').addEventListener('click', e=>{ e.stopPropagation(); muted=!muted; saveProgress(false); refreshUI(); });
 cv.addEventListener('pointerdown', e=>{ e.preventDefault(); launch(); });
