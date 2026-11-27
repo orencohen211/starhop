@@ -156,7 +156,9 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
              request.auth.uid == resource.data.a ? ['state', 'aScore', 'aDone'] : ['state', 'bScore', 'bDone'])
         && request.resource.data.state in ['invited', 'go', 'declined', 'cancelled', 'done']
-        && request.resource.data.aScore is int && request.resource.data.bScore is int;
+        && request.resource.data.aScore is int && request.resource.data.bScore is int
+        && request.resource.data.aScore <= (request.time.toMillis() - resource.data.createdAt.toMillis()) / 1000 * 2 + 5
+        && request.resource.data.bScore <= (request.time.toMillis() - resource.data.createdAt.toMillis()) / 1000 * 2 + 5;
       allow delete: if false;
 
       match /moves/{m} {
@@ -166,6 +168,59 @@ service cloud.firestore {
           && request.resource.data.keys().hasOnly(['by', 'n', 't', 'x', 'y', 'vx', 'vy', 'p', 'px', 'py',
                                                     'a', 'r', 'd', 'w', 'sc', 'c', 'at'])
           && request.resource.data.t in ['S', 'L', 'C', 'V', 'T', 'D']
+          && request.resource.data.at == request.time;
+        allow update, delete: if false;
+      }
+    }
+
+    // Ranked 1v1 ratings. Public to read. A pilot changes their own rating only by
+    // counting a finished duel they played: +25 for a win, -20 for a loss (not below 0),
+    // 0 for a draw, worked out from the duel's own scores. Each duel counts once.
+    function myDuelScore(d, uid) { return d.a == uid ? d.aScore : d.bScore; }
+    function theirDuelScore(d, uid) { return d.a == uid ? d.bScore : d.aScore; }
+    function ratingAfter(old, d, uid) {
+      return myDuelScore(d, uid) > theirDuelScore(d, uid) ? old + 25
+           : myDuelScore(d, uid) < theirDuelScore(d, uid) ? (old >= 20 ? old - 20 : 0)
+           : old;
+    }
+    function ratingOk(uid, d, o, n) {
+      return (d.a == uid || d.b == uid) && d.aDone == true && d.bDone == true
+        && n.rating == ratingAfter(o.rating, d, uid)
+        && n.wins == o.wins + (myDuelScore(d, uid) > theirDuelScore(d, uid) ? 1 : 0)
+        && n.losses == o.losses + (myDuelScore(d, uid) < theirDuelScore(d, uid) ? 1 : 0)
+        && n.draws == o.draws + (myDuelScore(d, uid) == theirDuelScore(d, uid) ? 1 : 0)
+        && n.duels == o.duels + 1;
+    }
+    match /ratings/{uid} {
+      allow read: if true;
+      allow create: if isOwner(uid) && !isBanned(uid)
+        && request.resource.data.keys().hasOnly(['callsign', 'rating', 'wins', 'losses', 'draws', 'duels', 'lastDuel', 'updatedAt'])
+        && request.resource.data.rating == 1000
+        && request.resource.data.wins == 0 && request.resource.data.losses == 0
+        && request.resource.data.draws == 0 && request.resource.data.duels == 0
+        && request.resource.data.lastDuel == ''
+        && request.resource.data.callsign is string
+        && get(/databases/$(database)/documents/callsigns/$(request.resource.data.callsign.lower())).data.uid == request.auth.uid
+        && request.resource.data.updatedAt == request.time;
+      allow update: if isOwner(uid) && !isBanned(uid)
+        && request.resource.data.keys().hasOnly(['callsign', 'rating', 'wins', 'losses', 'draws', 'duels', 'lastDuel', 'updatedAt'])
+        && request.resource.data.callsign is string
+        && get(/databases/$(database)/documents/callsigns/$(request.resource.data.callsign.lower())).data.uid == request.auth.uid
+        && request.resource.data.updatedAt == request.time
+        && ratingOk(uid, get(/databases/$(database)/documents/duels/$(request.resource.data.lastDuel)).data, resource.data, request.resource.data)
+        && !exists(/databases/$(database)/documents/ratings/$(uid)/counted/$(request.resource.data.lastDuel))
+        && existsAfter(/databases/$(database)/documents/ratings/$(uid)/counted/$(request.resource.data.lastDuel));
+      allow delete: if isOwner(uid) || isAdmin();
+
+      // One marker per duel already counted (with the rating change), so a duel can't count twice.
+      match /counted/{did} {
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && request.resource.data.keys().hasOnly(['delta', 'at'])
+          && request.resource.data.delta is int
+          && getAfter(/databases/$(database)/documents/ratings/$(uid)).data.lastDuel == did
+          && request.resource.data.delta == getAfter(/databases/$(database)/documents/ratings/$(uid)).data.rating
+                                            - get(/databases/$(database)/documents/ratings/$(uid)).data.rating
           && request.resource.data.at == request.time;
         allow update, delete: if false;
       }

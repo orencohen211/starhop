@@ -201,6 +201,18 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
 .vsside.win strong{color:var(--flare)}
 .vsmid{align-self:center;font:700 14px var(--display);color:var(--muted)}
 .duelres.win{color:var(--flare)} .duelres.loss{color:var(--danger)}
+.tier{display:inline-block;font:700 12px var(--display);letter-spacing:.06em;border:1px solid;border-radius:999px;padding:2px 9px;white-space:nowrap}
+.hrow{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:9px 10px;border-radius:10px;background:rgba(143,151,201,.07);border-left:3px solid rgba(143,151,201,.3)}
+.hrow.win{border-left-color:var(--flare)} .hrow.loss{border-left-color:var(--danger)} .hrow.draw{border-left-color:var(--muted)}
+.hleftcol{display:flex;flex-direction:column;gap:2px;min-width:0}
+.hleftcol .namebtn{font:700 14px var(--display);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hscore{font:700 18px var(--display);font-variant-numeric:tabular-nums}
+.hright{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:62px}
+.hres{font:700 11px var(--display);letter-spacing:.12em}
+.hres.win{color:var(--flare)} .hres.loss{color:var(--danger)} .hres.draw,.hres.dc{color:var(--muted)}
+.hdelta{font:600 12px var(--display);color:var(--muted);font-variant-numeric:tabular-nums}
+.h2h{font:700 15px var(--display);font-variant-numeric:tabular-nums}
+#pausePanel .card{align-items:stretch}
 .sgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .stat{background:rgba(143,151,201,.07);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:2px;min-width:0}
 .stat span{font:600 10.5px var(--display);letter-spacing:.1em;color:var(--muted);text-transform:uppercase}
@@ -252,7 +264,9 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
       <div id="hBestRow">BEST <span id="hBest">0</span></div>
       <div>★ <b id="hStars">0</b></div>
       <div class="buffs" id="hBuffs"></div>
+      <button class="mute" id="pauseBtn" type="button" aria-label="Pause">❚❚ PAUSE</button>
       <button class="mute" id="mute1" type="button">SOUND ON</button>
+      <button class="mute" id="music1" type="button">MUSIC ON</button>
     </div>
   </div>
 
@@ -273,7 +287,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
       <button class="ghost storebtn" id="storeBtn1" type="button">★ STORE</button>
     </div>
     <p class="how">Tap, click or <kbd>Space</kbd> to leave orbit.<br>Skip a planet for bonus points. Every landing earns ★, and so does every ★ you catch. Spend them on trails.</p>
-    <p class="foot"><button class="link" id="howBtn" type="button">Play the tutorial</button> · <a class="link" href="privacy.html" target="_blank" rel="noopener">Privacy</a></p>
+    <p class="foot"><button class="link" id="howBtn" type="button">Play the tutorial</button> · <button class="link" id="musicFoot" type="button">Music: on</button> · <a class="link" href="privacy.html" target="_blank" rel="noopener">Privacy</a></p>
   </div>
 
   <div class="panel" id="over" hidden>
@@ -317,6 +331,25 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
   </div>
 
   <div class="achtoast" id="achToast" role="status" aria-live="polite" hidden></div>
+
+  <div class="panel" id="pausePanel" hidden>
+    <div class="card">
+      <span class="eyebrow">Game paused</span>
+      <h2>Paused</h2>
+      <p id="pauseInfo"></p>
+      <div class="row"><button class="play" id="resumeBtn" type="button">RESUME</button><button class="ghost" id="restartBtn" type="button">RESTART</button><button class="ghost danger" id="quitBtn" type="button">QUIT</button></div>
+      <div class="row"><button class="ghost" id="pMusic" type="button">MUSIC ON</button><button class="ghost" id="pSound" type="button">SOUND ON</button></div>
+      <p class="fine">Press P or Esc to resume. Quitting ends this flight and counts its score.</p>
+    </div>
+  </div>
+
+  <div class="panel solid" id="historyPanel" hidden>
+    <div class="card store">
+      <div class="storehead"><div><span class="eyebrow">1v1 duels</span><h2>Duel history</h2></div></div>
+      <div class="items" id="histBody"></div>
+      <button class="ghost" id="histBack" type="button" style="align-self:flex-start">BACK</button>
+    </div>
+  </div>
 
   <div class="panel solid" id="duelLobby" hidden><div class="card" id="duelLobbyCard" aria-live="polite"></div></div>
   <div class="panel solid" id="duelResult" hidden><div class="card" id="duelResultCard" aria-live="polite"></div></div>
@@ -387,9 +420,10 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
     <div class="card">
       <span class="eyebrow">Top pilots</span>
       <h2>Leaderboard</h2>
-      <div class="tabs two" role="tablist" id="rankTabs">
+      <div class="tabs" role="tablist" id="rankTabs">
         <button type="button" role="tab" data-m="all">EVERYONE</button>
         <button type="button" role="tab" data-m="friends">FRIENDS</button>
+        <button type="button" role="tab" data-m="ranked">RANKED 1V1</button>
       </div>
       <ol class="ranks" id="ranksList"></ol>
       <p id="ranksNote"></p>
@@ -697,6 +731,7 @@ function login(data, silent){
     if (!sn.exists()) F.setDoc(F.doc(db,'leaderboard',uid), {callsign, best:0, updatedAt:F.serverTimestamp()}).catch(()=>{}); }).catch(()=>{});
   checkAdmin();
   startFriends();
+  loadMyRating();
   pilotSince = data.joined && data.joined.toDate ? dayKey(data.joined.toDate()) : (pilotSince || dayKey());
   saveProgress(true);
   setTimeout(()=>{ checkAch(); publishProfile(); }, 400);
@@ -711,7 +746,7 @@ function checkAdmin(){
   F.getDoc(F.doc(db,'admins',uid)).then(sn=>{ const was=isAdmin; isAdmin = sn.exists(); if (was!==isAdmin) renderRanks(); }).catch(()=>{});
 }
 function leavePilot(){
-  stopFriends();
+  stopFriends(); myRating = null;
   mode='guest'; callsign=''; isAdmin=false; runStartP=null;
   applyProgress(_store.guest);
   lastCloud=''; lastBoardBest=0; lastProfile=''; pilotSince='';
@@ -739,6 +774,7 @@ async function deleteAccount(){
     await F.deleteDoc(F.doc(db,'runs',uid)).catch(()=>{});
     await F.deleteDoc(F.doc(db,'callsigns',callsign.toLowerCase())).catch(()=>{});
     await F.deleteDoc(F.doc(db,'profiles',uid)).catch(()=>{});
+    await F.deleteDoc(F.doc(db,'ratings',uid)).catch(()=>{});
     for (const f of friendPairs) await F.deleteDoc(F.doc(db,'friendships',f.id)).catch(()=>{});
     for (const r of [...incoming, ...outgoing]) await F.deleteDoc(F.doc(db,'friendReqs',r.id)).catch(()=>{});
     await F.deleteDoc(F.doc(db,'users',uid));
@@ -857,6 +893,18 @@ function renderRanks(){
   const list=$('ranksList'), note=$('ranksNote');
   list.textContent='';
   for (const b of $('rankTabs').querySelectorAll('button')) b.setAttribute('aria-selected', String(b.dataset.m===rankMode));
+  if (rankMode==='ranked'){
+    watchRanked();
+    if (!rankedRows){ note.textContent = rankedErr ? 'The ranked board can’t be reached right now.' : 'Loading ranked pilots…'; rankedErr = false; return; }
+    rankedRows.forEach((r,i)=>{
+      const li=el('li', r.id===uid && mode==='pilot' ? 'me' : null);
+      li.append(el('span','pos',(i+1)+'.'), btn('nm namebtn', String(r.callsign||'Pilot').slice(0,16), ()=>openProfile(r.id, r.callsign, 'ranks')));
+      const sc=el('span','sc'); sc.append(tierChip(Math.max(0,+r.rating||0))); li.append(sc); list.append(li);
+    });
+    note.textContent = !rankedRows.length ? 'Nobody is ranked yet. Win a 1v1 against a friend to get on the board.'
+      : myRating ? `You: ${tierOf(myRating.rating).name} · ${myRating.rating}` : 'Play a 1v1 to get ranked.';
+    return;
+  }
   if (rankMode==='friends'){
     if (mode!=='pilot'){ note.textContent='Sign up or log in to compare scores with friends.'; return; }
     if (!friendRows){ note.textContent='Loading friends…'; return; }
@@ -1033,6 +1081,8 @@ function showPanel(which){
   $('friendsPanel').hidden = true;
   $('duelLobby').hidden = true;
   $('duelResult').hidden = true;
+  $('historyPanel').hidden = true;
+  $('pausePanel').hidden = true;
   $('profilePanel').hidden = true;
   $('missionsPanel').hidden = which!=='missions';
   $('mResult').hidden = which!=='mresult';
@@ -1041,6 +1091,7 @@ function showPanel(which){
   if (which==='auth') renderAuth();
   if (which==='ranks'){ renderRanks(); checkAdmin(); }
   if (which==='friends'){ $('friendsPanel').hidden=false; renderFriends(); }
+  if (which==='history'){ $('historyPanel').hidden=false; }
   if (which==='menu') { renderAcct(); refreshUI(); }
 }
 $('ranksBack').addEventListener('click',()=>showPanel(prevPanel));
@@ -1445,6 +1496,7 @@ function update(dt){
     for (const p of planets) p.spin += dt*0.3;
     return;
   }
+  if (state==='paused') return;
   if (duel && (state==='play' || state==='spectate')) duelStep(dt);
   if (state==='spectate'){ spectateStep(dt); return; }
   if (state!=='play') return;
@@ -1740,6 +1792,7 @@ function renderStats(){
       ['Most common ending', worst, null, null, true],
     ]],
     ['1V1 DUELS', [
+      ['Ranked rating', myRating ? `${tierOf(myRating.rating).name} · ${myRating.rating}` : 'Unranked', myRating ? `${myRating.wins}W ${myRating.losses}L ${myRating.draws}D ranked` : 'win a duel to get ranked', 'gold', true],
       ['Duels played', fmtNum(L.duels)], ['Wins', fmtNum(L.duelWins), null, 'gold'],
       ['Losses', fmtNum(L.duelLosses)], ['Draws', fmtNum(L.duelDraws)],
       ['Win rate', L.duels ? Math.round(L.duelWins/L.duels*100)+'%' : '—'], ['Best duel score', L.duels ? fmtNum(L.duelBest) : '—'],
@@ -1764,6 +1817,7 @@ function renderStats(){
       g.append(t);
     }
     box.append(g);
+    if (title==='1V1 DUELS') box.append(btn('ghost','FULL DUEL HISTORY',()=>openHistory('stats')));
   }
   box.append(el('p','statnote', L.since ? `Detailed stats have been recorded since ${fmtDay(L.since)}. Total flights, best score, stars and missions include everything from before that too.`
     : 'Detailed stats start counting from your next flight. Total flights, best score, stars and missions already include everything so far.'));
@@ -1892,7 +1946,7 @@ $('achTabs').addEventListener('click', e=>{ const b=e.target.closest('button'); 
 $('achBack').addEventListener('click', ()=>showPanel(prevPanel));
 
 // ---------- pilot profiles (public) ----------
-let lastProfile = '', pilotSince = '', profFrom = 'menu';
+let lastProfile = '', pilotSince = '', profFrom = 'menu', profRated = null;
 function profileBody(){
   return {callsign, flights:games, missions:missionsDone.length, mStars:sumRates(), badges:achs.slice(),
     ship:shipEq, trail:equipped, theme:themeEq, since:pilotSince || dayKey()};
@@ -1907,7 +1961,7 @@ async function publishProfile(){
 function nameOf(list, id){ const x = list.find(t=>t.id===id); return x ? x.name.toLowerCase().replace(/\b\w/g, c=>c.toUpperCase()) : '—'; }
 async function openProfile(id, fallbackName, from){
   profFrom = from || 'menu';
-  for (const pid of ['menu','over','auth','ranksPanel','missionsPanel','mResult','storePanel','statsPanel','achPanel','friendsPanel']) $(pid).hidden=true;
+  for (const pid of ['menu','over','auth','ranksPanel','missionsPanel','mResult','storePanel','statsPanel','achPanel','friendsPanel','historyPanel']) $(pid).hidden=true;
   $('profilePanel').hidden=false;
   const c = $('profileCard'); c.textContent='';
   c.append(el('span','eyebrow','Pilot profile'), el('h2',null, fallbackName || 'Loading…'), el('span','spin'));
@@ -1915,7 +1969,8 @@ async function openProfile(id, fallbackName, from){
   if (fb){
     const {F, db} = fb;
     try {
-      const [ps, bs] = await Promise.all([F.getDoc(F.doc(db,'profiles',id)), F.getDoc(F.doc(db,'leaderboard',id))]);
+      const [ps, bs, rs] = await Promise.all([F.getDoc(F.doc(db,'profiles',id)), F.getDoc(F.doc(db,'leaderboard',id)), F.getDoc(F.doc(db,'ratings',id)).catch(()=>null)]);
+      profRated = rs && rs.exists() ? rs.data() : null;
       prof = ps.exists() ? ps.data() : null; board = bs.exists() ? bs.data() : null;
       if (board && (+board.best||0) > 0){
         const higher = await F.getCountFromServer(F.query(F.collection(db,'leaderboard'), F.where('best','>',+board.best||0))).then(x=>x.data().count, ()=>null);
@@ -1944,6 +1999,7 @@ function renderProfile(p, board, rank, fallbackName, mine, pid){
   const stat = (label, value, cls) => { const t=el('div','stat'); t.append(el('span',null,label), el('strong',cls||null,value)); grid.append(t); };
   stat('Leaderboard best', board ? fmtNum(+board.best||0) : '—', 'gold');
   stat('Rank', rank ? '#'+rank : '—');
+  stat('1v1 rank', profRated ? `${tierOf(profRated.rating).name} · ${profRated.rating}` : 'Unranked');
   stat('Flights', p ? fmtNum(+p.flights||0) : '—');
   stat('Missions cleared', p ? `${+p.missions||0} / ${MISSIONS.length}` : '—');
   stat('Mission stars', p ? `★ ${+p.mStars||0} / ${MISSIONS.length*3}` : '—', 'gold');
@@ -2341,7 +2397,8 @@ function finishDuel(){
   if (res==='win'){ life.duelWins++; life.duelStreak++; life.duelBestStreak = Math.max(life.duelBestStreak, life.duelStreak); bank += 15; life.starsEarned += 15; }
   else if (res==='loss'){ life.duelLosses++; life.duelStreak = 0; }
   else { life.duelDraws++; }
-  if (duel.me==='a' || true) fb.F.updateDoc(fb.F.doc(fb.db,'duels',duel.id), {state:'done'}).catch(()=>{});
+  fb.F.updateDoc(fb.F.doc(fb.db,'duels',duel.id), {state:'done'}).catch(()=>{});
+  const ratingP = duel.lost ? Promise.resolve({dc:true}) : rateDuel(duel.id, duel.me).catch(()=>({error:true}));
   saveProgress(true); setTimeout(checkAch, 600);
   if (res==='win'){ beep(660,0.12,'triangle',0.07,0); setTimeout(()=>beep(990,0.25,'triangle',0.07,300),130); }
   setTimeout(()=>{
@@ -2354,6 +2411,12 @@ function finishDuel(){
     c.append(vs);
     if (duel.lost) c.append(el('p','fine',`${duel.oppName} lost connection, so their last score counts.`));
     c.append(el('p', res==='win' ? 'okmsg' : 'fine', res==='win' ? '+★15 for the win.' : res==='loss' ? 'Ask for a rematch!' : 'Nobody wins this one.'));
+    const rl = el('p','fine','Updating your rating…'); c.append(rl);
+    ratingP.then(r => { rl.textContent = '';
+      if (r.dc) rl.append('Unranked: your rival disconnected.');
+      else if (r.unranked) rl.append('Unranked: the duel didn’t finish on both sides.');
+      else if (r.error) rl.append('Couldn’t update your rating this time.');
+      else { rl.append(`Rating ${r.delta>=0?'+':'−'}${Math.abs(r.delta)} → `, tierChip(r.rating)); } });
     const row = el('div','row');
     const oppUid = duel.oppUid, oppName = duel.oppName;
     row.append(btn('play','REMATCH',()=>{
@@ -2376,6 +2439,215 @@ function exitDuel(keepPanels){
   renderDuelInvite();
 }
 addEventListener('pagehide', ()=>{ if (duel && duel.phase==='play' && state==='play') duelSend({t:'D', sc:score, c:'Left the game'}); });
+
+// ---------- background music (generated live with Web Audio; no files) ----------
+let musicOn = _store.musicOn !== false, musicReady = false;
+const mus = {gain:null, filter:null, delay:null, timer:null, step:0, next:0, on:false};
+const THEME_ROOT = {classic:57, lava:52, ice:59, candy:60, neon:55};   // MIDI root note per planet theme
+const CHORDS = [[0,3,7],[-4,0,3],[3,7,10],[-2,2,5]];                    // i  VI  III  VII
+const ARP = [0,1,2,1,2,0,2,1];
+const mtof = m => 440*Math.pow(2,(m-69)/12);
+function musicIntensity(){ return state==='play' || state==='spectate' ? 1 : state==='paused' ? 0.25 : 0.5; }
+function startMusic(){
+  if (!musicOn || !musicReady || mus.on) return;
+  try {
+    if (!actx) actx = new (window.AudioContext||window.webkitAudioContext)();
+    if (actx.state==='suspended') actx.resume();
+    if (!mus.gain){
+      mus.gain = actx.createGain(); mus.gain.gain.value = 0;
+      mus.filter = actx.createBiquadFilter(); mus.filter.type='lowpass'; mus.filter.frequency.value = 1200; mus.filter.Q.value = 0.7;
+      mus.delay = actx.createDelay(1.5); const fb2 = actx.createGain(); fb2.gain.value = 0.32; mus.delay.delayTime.value = 0.535;
+      mus.delay.connect(fb2).connect(mus.delay); mus.delay.connect(mus.filter);
+      mus.filter.connect(mus.gain).connect(actx.destination);
+    }
+    mus.on = true; mus.next = actx.currentTime + 0.1;
+    mus.gain.gain.cancelScheduledValues(actx.currentTime); mus.gain.gain.setTargetAtTime(0.55, actx.currentTime, 1.2);
+    mus.timer = setInterval(musicTick, 60);
+  } catch(e){}
+}
+function stopMusic(){
+  if (!mus.on) return; mus.on = false; clearInterval(mus.timer);
+  try { mus.gain.gain.setTargetAtTime(0, actx.currentTime, 0.4); } catch(e){}
+}
+function note(freq, t, dur, type, vol, toDelay){
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = type; o.frequency.value = freq;
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + Math.min(0.9, dur*0.25));
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(mus.filter); if (toDelay) g.connect(mus.delay);
+  o.start(t); o.stop(t + dur + 0.05);
+}
+function musicTick(){
+  if (!mus.on) return;
+  const eighth = 60/84/2, lvl = musicIntensity();
+  mus.filter.frequency.setTargetAtTime(500 + lvl*1700, actx.currentTime, 0.8);
+  while (mus.next < actx.currentTime + 0.3){
+    const t = mus.next, st = mus.step, root = THEME_ROOT[themeEq] || 57;
+    const ch = CHORDS[Math.floor(st/16) % 4];
+    if (st % 16 === 0) for (const iv of ch){ note(mtof(root+iv), t, eighth*16, 'triangle', 0.018, false); note(mtof(root+iv)*1.004, t, eighth*16, 'sine', 0.014, false); }
+    if (st % 8 === 0) note(mtof(root+ch[0]-12), t, eighth*7, 'sine', 0.05*Math.max(0.4,lvl), false);
+    const dense = lvl >= 1 || st % 2 === 0;
+    if (dense && lvl > 0.3){ const iv = ch[ARP[st % 8]] + (st % 16 >= 12 ? 24 : 12); note(mtof(root+iv), t, 0.32, 'sine', 0.022*lvl, true); }
+    if (st % 32 === 28 && lvl >= 1) note(mtof(root+ch[2]+24), t, 0.6, 'triangle', 0.012, true);
+    mus.next += eighth; mus.step++;
+  }
+}
+function setMusic(on){
+  musicOn = on; _store.musicOn = on; flush();
+  if (on) startMusic(); else stopMusic();
+  refreshUI();
+}
+const firstGesture = () => { musicReady = true; startMusic(); };
+addEventListener('pointerdown', firstGesture, {passive:true});
+addEventListener('keydown', firstGesture);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState==='hidden') stopMusic(); else startMusic(); });
+
+// ---------- pause (solo runs and missions; not in 1v1) ----------
+function canPause(){ return state==='play' && !duel; }
+function pauseGame(){
+  if (!canPause()) return;
+  state = 'paused';
+  $('pausePanel').hidden = false;
+  $('pauseInfo').textContent = curMission ? `Mission: ${curMission.name} · ${Math.min(missionProgress(), curMission.n)} / ${curMission.n}` : `Score ${score} · Best ${best}`;
+  setTimeout(()=>$('resumeBtn').focus({preventScroll:true}), 30);
+}
+function resumeGame(){
+  if (state!=='paused') return;
+  $('pausePanel').hidden = true; state = 'play';
+}
+function quitRun(){
+  if (state!=='paused') return;
+  $('pausePanel').hidden = true; state = 'play';
+  tut = null; hideTip();
+  die(curMission ? 'You left the mission' : 'You ended the flight');
+}
+function restartRun(){
+  if (state!=='paused') return;
+  $('pausePanel').hidden = true; state = 'play'; tut = null; hideTip();
+  if (curMission) startMission(curMission); else start();
+}
+$('pauseBtn').addEventListener('click', e=>{ e.stopPropagation(); pauseGame(); });
+$('resumeBtn').addEventListener('click', resumeGame);
+$('restartBtn').addEventListener('click', restartRun);
+$('quitBtn').addEventListener('click', quitRun);
+$('music1').addEventListener('click', e=>{ e.stopPropagation(); setMusic(!musicOn); });
+$('musicFoot').addEventListener('click', ()=>setMusic(!musicOn));
+document.addEventListener('visibilitychange', () => { if (document.visibilityState==='hidden' && canPause()) pauseGame(); });
+
+// ---------- ranked ratings ----------
+const TIERS = [[0,'Bronze','#d08a4e'],[1100,'Silver','#c7cee0'],[1250,'Gold','#ffcf5a'],[1400,'Platinum','#7fe3ff'],[1550,'Diamond','#b9a4ff'],[1700,'Galaxy','#ff8cc6']];
+function tierOf(r){ let t = TIERS[0]; for (const x of TIERS) if (r >= x[0]) t = x; return {name:t[1], color:t[2]}; }
+function tierChip(r){ const t = tierOf(r); const c = el('span','tier', `${t.name} · ${r}`); c.style.color = t.color; c.style.borderColor = t.color; return c; }
+let myRating = null;
+async function loadMyRating(){
+  if (mode!=='pilot' || !fb || !uid) { myRating = null; return; }
+  try { const s = await fb.F.getDoc(fb.F.doc(fb.db,'ratings',uid)); myRating = s.exists() ? s.data() : null; } catch(e){}
+}
+function duelOutcome(d, me){
+  const m = me==='a' ? d.aScore : d.bScore, t = me==='a' ? d.bScore : d.aScore;
+  return m > t ? 'win' : m < t ? 'loss' : 'draw';
+}
+async function rateDuel(id, me){
+  const {F, db} = fb, ref = F.doc(db,'duels',id);
+  let d = null;
+  for (let i=0; i<20; i++){   // wait until both players' final scores are in
+    const s = await F.getDoc(ref); const v = s.data();
+    if (v && v.aDone && v.bDone){ d = v; break; }
+    await new Promise(r=>setTimeout(r,1500));
+  }
+  if (!d) return {unranked:true};
+  const rref = F.doc(db,'ratings',uid);
+  let rs = await F.getDoc(rref);
+  if (!rs.exists()){
+    await F.setDoc(rref, {callsign, rating:1000, wins:0, losses:0, draws:0, duels:0, lastDuel:'', updatedAt:F.serverTimestamp()});
+    rs = await F.getDoc(rref);
+  }
+  const o = rs.data(), res = duelOutcome(d, me);
+  const nr = res==='win' ? o.rating + 25 : res==='loss' ? Math.max(0, o.rating - 20) : o.rating;
+  const nw = {callsign, rating:nr, wins:o.wins+(res==='win'?1:0), losses:o.losses+(res==='loss'?1:0), draws:o.draws+(res==='draw'?1:0),
+              duels:o.duels+1, lastDuel:id, updatedAt:F.serverTimestamp()};
+  const b = F.writeBatch(db);
+  b.set(rref, nw);
+  b.set(F.doc(db,'ratings',uid,'counted',id), {delta:nr - o.rating, at:F.serverTimestamp()});
+  await b.commit();
+  myRating = {...nw};
+  return {rating:nr, delta:nr - o.rating, res};
+}
+let rankedRows = null, rankedUnsub = null, rankedErr = false;
+function watchRanked(){
+  if (!fb || rankedUnsub) return;
+  const {F, db} = fb;
+  rankedUnsub = F.onSnapshot(F.query(F.collection(db,'ratings'), F.orderBy('rating','desc'), F.limit(20)), sn=>{
+    rankedRows = sn.docs.map(d=>({id:d.id, ...d.data()})); if (!$('ranksPanel').hidden && rankMode==='ranked') renderRanks();
+  }, ()=>{ rankedRows = null; rankedUnsub = null; rankedErr = true; if (!$('ranksPanel').hidden && rankMode==='ranked') renderRanks(); });
+}
+
+// ---------- duel history (every duel you've played) ----------
+let histFrom = 'menu';
+async function openHistory(from){
+  histFrom = from || 'menu';
+  for (const id of ['menu','over','auth','ranksPanel','missionsPanel','mResult','storePanel','statsPanel','achPanel','profilePanel','friendsPanel','duelLobby','duelResult']) $(id).hidden = true;
+  $('historyPanel').hidden = false;
+  const box = $('histBody'); box.textContent = '';
+  if (mode!=='pilot' || !fb){ box.append(el('p','fine','Duel history is for pilots with an account. Log in to see yours.')); return; }
+  box.append(el('p','fine','Loading your duels…'), el('span','spin'));
+  const {F, db} = fb;
+  try {
+    const [qa, qb, cs] = await Promise.all([
+      F.getDocs(F.query(F.collection(db,'duels'), F.where('a','==',uid))),
+      F.getDocs(F.query(F.collection(db,'duels'), F.where('b','==',uid))),
+      F.getDocs(F.collection(db,'ratings',uid,'counted')).catch(()=>null)]);
+    const deltas = {}; if (cs) cs.docs.forEach(d=>{ deltas[d.id] = d.data().delta; });
+    await loadMyRating();
+    const rows = [...qa.docs, ...qb.docs].map(d=>({id:d.id, ...d.data()}))
+      .map(d=>{ const me = d.a===uid ? 'a' : 'b'; return {...d, me, myDone: me==='a'?d.aDone:d.bDone, oppName: me==='a'?d.bName:d.aName, oppUid: me==='a'?d.b:d.a,
+        mine: me==='a'?d.aScore:d.bScore, theirs: me==='a'?d.bScore:d.aScore, when: d.createdAt && d.createdAt.toDate ? d.createdAt.toDate() : null}; })
+      .filter(d => d.myDone)
+      .sort((x,y)=>(y.when||0)-(x.when||0));
+    renderHistory(rows, deltas);
+  } catch(e){ box.textContent=''; box.append(el('p','err','Couldn’t load your duels. Check your connection and try again.')); }
+}
+function renderHistory(rows, deltas){
+  const box = $('histBody'); box.textContent = '';
+  const done = rows.filter(r => r.aDone && r.bDone);
+  const res = r => r.mine > r.theirs ? 'win' : r.mine < r.theirs ? 'loss' : 'draw';
+  const W = done.filter(r=>res(r)==='win').length, L = done.filter(r=>res(r)==='loss').length, D = done.length - W - L;
+  const head = el('div','sgrid');
+  const tile = (label, value, node) => { const t = el('div','stat'); t.append(el('span',null,label)); if (node) t.append(node); else t.append(el('strong',null,value)); head.append(t); };
+  tile('Ranked', null, myRating ? tierChip(myRating.rating) : el('strong',null,'Unranked'));
+  tile('Record', `${W} – ${L} – ${D}`);
+  tile('Duels finished', String(done.length));
+  tile('Win rate', done.length ? Math.round(W/done.length*100)+'%' : '—');
+  box.append(head, el('p','fine','Record is wins – losses – draws. A win is +25 rating, a loss −20, a draw ±0.'));
+  if (!rows.length){ box.append(el('p','fine','No duels yet. Challenge a friend from the Friends screen!')); return; }
+  // head to head
+  const byOpp = {};
+  for (const r of done){ const k = r.oppUid; byOpp[k] = byOpp[k] || {name:r.oppName, uid:k, w:0, l:0, d:0}; byOpp[k][res(r)[0]]++; }
+  const h2h = Object.values(byOpp).sort((a,b)=>(b.w+b.l+b.d)-(a.w+a.l+a.d));
+  if (h2h.length){
+    box.append(el('div','sect','HEAD TO HEAD'));
+    for (const o of h2h){
+      const row = el('div','frow');
+      row.append(btn('nm namebtn', String(o.name||'Pilot').slice(0,16), ()=>openProfile(o.uid, o.name, 'history')), el('span','h2h', `${o.w} – ${o.l} – ${o.d}`));
+      box.append(row);
+    }
+  }
+  box.append(el('div','sect',`ALL DUELS · ${rows.length}`));
+  for (const r of rows){
+    const fin = r.aDone && r.bDone, out = fin ? res(r) : 'dc';
+    const row = el('div','hrow '+out);
+    const left = el('div','hleftcol');
+    left.append(btn('nm namebtn', `vs ${String(r.oppName||'Pilot').slice(0,16)}`, ()=>openProfile(r.oppUid, r.oppName, 'history')),
+      el('span','ds', r.when ? r.when.toLocaleString('en-GB',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : ''));
+    const mid = el('span','hscore', fin ? `${r.mine} – ${r.theirs}` : `${r.mine} – ?`);
+    const right = el('div','hright');
+    right.append(el('span','hres '+out, out==='win' ? 'WIN' : out==='loss' ? 'LOSS' : out==='draw' ? 'DRAW' : 'NO RESULT'));
+    if (typeof deltas[r.id]==='number') right.append(el('span','hdelta', (deltas[r.id]>0?'+':'')+deltas[r.id]));
+    row.append(left, mid, right); box.append(row);
+  }
+  box.append(el('p','fine','“No result” means your rival disconnected before the duel finished, so it wasn’t ranked.'));
+}
+$('histBack').addEventListener('click', ()=>{ if (histFrom==='stats') openStats('menu'); else showPanel(histFrom); });
 
 // ---------- store ----------
 let storeTab='trails';
@@ -2459,6 +2731,9 @@ function refreshUI(){
   $('oBest').textContent=best; $('oStars').textContent=bank; $('oRunStars').textContent=runStars;
   $('hBest').textContent=best; $('hStars').textContent=bank; $('score').textContent=score;
   $('mute1').textContent = muted ? 'SOUND OFF' : 'SOUND ON';
+  $('pSound').textContent = muted ? 'SOUND OFF' : 'SOUND ON';
+  $('music1').textContent = $('pMusic').textContent = musicOn ? 'MUSIC ON' : 'MUSIC OFF';
+  $('musicFoot').textContent = musicOn ? 'Music: on' : 'Music: off';
   $('storeBtn1').textContent = $('storeBtn2').textContent = `★ ${bank} · STORE`;
 }
 let runStartBest = 0;
@@ -2603,8 +2878,14 @@ $('overMenu').addEventListener('click', ()=>showPanel('menu'));
 $('overRanks').addEventListener('click', ()=>{ prevPanel='over'; $('over').hidden=true; $('ranksPanel').hidden=false; renderRanks(); checkAdmin(); });
 $('acct').addEventListener('click', ()=>{ prevPanel='menu'; }, true);
 $('mute1').addEventListener('click', e=>{ e.stopPropagation(); muted=!muted; saveProgress(false); refreshUI(); });
+$('pSound').addEventListener('click', ()=>{ muted=!muted; saveProgress(false); refreshUI(); });
+$('pMusic').addEventListener('click', ()=>setMusic(!musicOn));
 cv.addEventListener('pointerdown', e=>{ e.preventDefault(); launch(); });
 addEventListener('keydown', e=>{
+  if (e.code==='KeyP' || e.code==='Escape'){
+    if (state==='play' && canPause()){ e.preventDefault(); pauseGame(); return; }
+    if (state==='paused'){ e.preventDefault(); resumeGame(); return; }
+  }
   if (e.code==='Space' || e.code==='ArrowUp'){
     const tag = document.activeElement && document.activeElement.tagName;
     if (state==='play'){ e.preventDefault(); launch(); }
