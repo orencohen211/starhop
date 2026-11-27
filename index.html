@@ -2162,12 +2162,16 @@ async function challenge(friendUid, friendName){
   if (duel || mode!=='pilot' || !fb) return;
   const {F, db} = fb, ref = F.doc(F.collection(db,'duels'));
   const seed = 1 + Math.floor(Math.random()*2e9);
-  enterDuel({id:ref.id, me:'a', oppUid:friendUid, oppName:String(friendName||'Rival').slice(0,16), seed, phase:'lobby'});
-  lobbyMsg(`Waiting for ${duel.oppName} to accept…`, true);
+  enterDuel({id:ref.id, me:'a', oppUid:friendUid, oppName:String(friendName||'Rival').slice(0,16), seed, phase:'lobby'}, false);
+  lobbyMsg(`Sending your challenge to ${duel.oppName}…`, true);
   try {
+    // create the duel first: watching a duel that doesn't exist yet is refused by the rules
     await F.setDoc(ref, {a:uid, b:friendUid, aName:callsign, bName:duel.oppName, seed, state:'invited', createdAt:F.serverTimestamp(),
       aScore:0, bScore:0, aDone:false, bDone:false});
   } catch(e){ lobbyMsg('Couldn’t send the challenge. You can only challenge friends.', false); return; }
+  if (!duel || duel.id !== ref.id) return;   // cancelled meanwhile
+  watchDuel();
+  lobbyMsg(`Waiting for ${duel.oppName} to accept…`, true);
   clearTimeout(lobbyTimer);
   lobbyTimer = setTimeout(()=>{ if (duel && duel.phase==='lobby'){ fb.F.updateDoc(fb.F.doc(fb.db,'duels',duel.id), {state:'cancelled'}).catch(()=>{}); lobbyMsg(`${duel.oppName} didn’t answer in time.`, false); } }, 60000);
 }
@@ -2179,10 +2183,14 @@ async function acceptDuel(inv){
   try { await fb.F.updateDoc(fb.F.doc(fb.db,'duels',inv.id), {state:'go'}); }
   catch(e){ lobbyMsg('That challenge has expired.', false); }
 }
-function enterDuel(d){
+function enterDuel(d, listen){
   duel = {...d, oppDone:false, oppScore:0, myDone:false, lost:false};
   duelSeq = 0; seenMoves = new Set();
-  const {F, db} = fb;
+  showDuelPanel('lobby');
+  if (listen !== false) watchDuel();
+}
+function watchDuel(){
+  const {F, db} = fb, d = duel;
   duelUnsubs.push(F.onSnapshot(F.doc(db,'duels',d.id), sn=>{
     if (!duel || !sn.exists()) return;
     const v = sn.data();
@@ -2202,7 +2210,6 @@ function enterDuel(d){
       if (duel && m.by === duel.oppUid) applyOppMove(m);
     }
   }, ()=>{}));
-  showDuelPanel('lobby');
 }
 function showDuelPanel(which){
   for (const id of ['menu','over','auth','ranksPanel','missionsPanel','mResult','storePanel','statsPanel','achPanel','profilePanel','friendsPanel','duelLobby','duelResult']) $(id).hidden=true;
