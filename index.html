@@ -1794,7 +1794,7 @@ async function publishProfile(){
   const {F, db} = fb;
   try { await F.setDoc(F.doc(db,'profiles',uid), {...body, updatedAt:F.serverTimestamp()}); lastProfile = j; } catch(e){}
 }
-function nameOf(list, id){ const x = list.find(t=>t.id===id); return x ? x.name : '—'; }
+function nameOf(list, id){ const x = list.find(t=>t.id===id); return x ? x.name.toLowerCase().replace(/\b\w/g, c=>c.toUpperCase()) : '—'; }
 async function openProfile(id, fallbackName, from){
   profFrom = from || 'menu';
   for (const pid of ['menu','over','auth','ranksPanel','missionsPanel','mResult','storePanel','statsPanel','achPanel']) $(pid).hidden=true;
