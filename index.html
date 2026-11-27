@@ -233,7 +233,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
     <div class="menurow">
       <button class="ghost" id="missionsBtn" type="button">MISSIONS</button>
       <button class="ghost" id="statsBtn" type="button">STATS</button>
-      <button class="ghost" id="achBtn" type="button">BADGES</button>
+      <button class="ghost" id="achBtn" type="button">ACHIEVEMENTS</button>
       <button class="ghost storebtn" id="storeBtn1" type="button">★ STORE</button>
     </div>
     <p class="how">Tap, click or <kbd>Space</kbd> to leave orbit.<br>Skip a planet for bonus points. Every landing earns ★, and so does every ★ you catch. Spend them on trails.</p>
@@ -255,6 +255,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
       <button class="ghost" id="overMenu" type="button">MENU</button>
       <button class="ghost" id="overRanks" type="button">LEADERBOARD</button>
       <button class="ghost" id="overStats" type="button">STATS</button>
+      <button class="ghost" id="overAch" type="button">ACHIEVEMENTS</button>
     </div>
     <p class="note" id="sync"></p>
   </div>
@@ -284,9 +285,15 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
   <div class="panel solid" id="achPanel" hidden>
     <div class="card store">
       <div class="storehead">
-        <div><span class="eyebrow">Achievements</span><h2>Badges</h2></div>
+        <div><span class="eyebrow">Badges and rewards</span><h2>Achievements</h2></div>
         <div class="bal" id="achCount">0 / 0</div>
       </div>
+      <div class="tabs" role="tablist" id="achTabs">
+        <button type="button" role="tab" data-f="all">ALL</button>
+        <button type="button" role="tab" data-f="done">DONE</button>
+        <button type="button" role="tab" data-f="todo">NOT YET</button>
+      </div>
+      <p class="fine" id="achSummary"></p>
       <div class="items" id="achBody"></div>
       <button class="ghost" id="achBack" type="button" style="align-self:flex-start">BACK</button>
     </div>
@@ -1735,11 +1742,21 @@ function nextAchToast(){
   t.append(g, tx); t.hidden = false;
   achTimer = setTimeout(nextAchToast, 2800);
 }
+let achFilter = 'all';
 function renderAch(){
   const box = $('achBody'); box.textContent='';
   $('achCount').textContent = `${achs.length} / ${ACH.length}`;
+  for (const b of $('achTabs').querySelectorAll('button')){
+    b.setAttribute('aria-selected', String(b.dataset.f===achFilter));
+    const n = b.dataset.f==='all' ? ACH.length : b.dataset.f==='done' ? achs.length : ACH.length-achs.length;
+    b.textContent = (b.dataset.f==='all' ? 'ALL' : b.dataset.f==='done' ? 'DONE' : 'NOT YET') + ' · ' + n;
+  }
+  const earned = ACH.filter(a=>achs.includes(a[0])).reduce((t,a)=>t+a[5],0), left = ACH.reduce((t,a)=>t+a[5],0) - earned;
+  $('achSummary').textContent = `You’ve earned ★${fmtNum(earned)} from achievements. ★${fmtNum(left)} still to earn.`;
+  const list = ACH.filter(a => achFilter==='all' || (achFilter==='done') === achs.includes(a[0]));
+  if (!list.length) box.append(el('p','fine', achFilter==='done' ? 'Nothing yet. Finish your first flight to earn your first badge.' : 'You’ve done them all. Legendary pilot!'));
   let cat = '';
-  for (const a of ACH){
+  for (const a of list){
     if (a[1] !== cat){ cat = a[1]; box.append(el('div','sect', cat.toUpperCase())); }
     const done = achs.includes(a[0]);
     const [cur, target] = a[6]();
@@ -1760,6 +1777,8 @@ function openAch(from){
   $('achPanel').hidden=false; renderAch(); $('achBody').scrollTop = 0;
 }
 $('achBtn').addEventListener('click', ()=>openAch('menu'));
+$('overAch').addEventListener('click', ()=>openAch('over'));
+$('achTabs').addEventListener('click', e=>{ const b=e.target.closest('button'); if (!b) return; achFilter=b.dataset.f; renderAch(); $('achBody').scrollTop=0; });
 $('achBack').addEventListener('click', ()=>showPanel(prevPanel));
 
 // ---------- pilot profiles (public) ----------
@@ -1833,7 +1852,7 @@ function renderProfile(p, board, rank, fallbackName, mine){
   } else c.append(el('p','fine', 'This pilot hasn’t flown since profiles arrived, so only their leaderboard score is shown.'));
   const row = el('div','row');
   row.append(btn('ghost','BACK',()=>showPanel(profFrom)));
-  if (mine) row.append(btn('link','Badges',()=>openAch('menu')));
+  if (mine) row.append(btn('link','My achievements',()=>openAch('menu')));
   c.append(row);
 }
 
