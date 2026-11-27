@@ -174,13 +174,23 @@ service cloud.firestore {
     }
 
     // Ranked 1v1 ratings. Public to read. A pilot changes their own rating only by
-    // counting a finished duel they played: +25 for a win, -20 for a loss (not below 0),
-    // 0 for a draw, worked out from the duel's own scores. Each duel counts once.
+    // counting a finished duel they played: the winner gains 12-30 points and the loser
+    // loses the same (not below 0), depending on the margin; a draw changes nothing.
+    // Worked out from the duel's own scores. Each duel counts once.
     function myDuelScore(d, uid) { return d.a == uid ? d.aScore : d.bScore; }
     function theirDuelScore(d, uid) { return d.a == uid ? d.bScore : d.aScore; }
+    // Points for a decided duel: 12 + 18 x margin / max(winner's score, 10), rounded,
+    // kept between 12 and 30. The winner gains them, the loser loses them.
+    function duelPoints(d) {
+      let hi = d.aScore > d.bScore ? d.aScore : d.bScore;
+      let lo = d.aScore > d.bScore ? d.bScore : d.aScore;
+      let den = hi > 10 ? hi : 10;
+      let pts = 12 + math.round(18.0 * (hi - lo) / den);   // 18.0: decimal division, not whole-number
+      return pts > 30 ? 30 : (pts < 12 ? 12 : pts);
+    }
     function ratingAfter(old, d, uid) {
-      return myDuelScore(d, uid) > theirDuelScore(d, uid) ? old + 25
-           : myDuelScore(d, uid) < theirDuelScore(d, uid) ? (old >= 20 ? old - 20 : 0)
+      return myDuelScore(d, uid) > theirDuelScore(d, uid) ? old + duelPoints(d)
+           : myDuelScore(d, uid) < theirDuelScore(d, uid) ? (old >= duelPoints(d) ? old - duelPoints(d) : 0)
            : old;
     }
     function ratingOk(uid, d, o, n) {

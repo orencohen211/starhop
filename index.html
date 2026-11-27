@@ -2543,6 +2543,12 @@ async function loadMyRating(){
   if (mode!=='pilot' || !fb || !uid) { myRating = null; return; }
   try { const s = await fb.F.getDoc(fb.F.doc(fb.db,'ratings',uid)); myRating = s.exists() ? s.data() : null; } catch(e){}
 }
+// Rating points for a decided duel: 12 + 18 x margin / max(winner's score, 10), rounded,
+// kept between 12 and 30. The database rules check this exact formula.
+function duelPoints(a, b){
+  const hi = Math.max(a, b), lo = Math.min(a, b), den = Math.max(hi, 10);
+  return Math.min(30, Math.max(12, 12 + Math.round(18 * (hi - lo) / den)));
+}
 function duelOutcome(d, me){
   const m = me==='a' ? d.aScore : d.bScore, t = me==='a' ? d.bScore : d.aScore;
   return m > t ? 'win' : m < t ? 'loss' : 'draw';
@@ -2563,7 +2569,8 @@ async function rateDuel(id, me){
     rs = await F.getDoc(rref);
   }
   const o = rs.data(), res = duelOutcome(d, me);
-  const nr = res==='win' ? o.rating + 25 : res==='loss' ? Math.max(0, o.rating - 20) : o.rating;
+  const pts = duelPoints(d.aScore, d.bScore);
+  const nr = res==='win' ? o.rating + pts : res==='loss' ? Math.max(0, o.rating - pts) : o.rating;
   const nw = {callsign, rating:nr, wins:o.wins+(res==='win'?1:0), losses:o.losses+(res==='loss'?1:0), draws:o.draws+(res==='draw'?1:0),
               duels:o.duels+1, lastDuel:id, updatedAt:F.serverTimestamp()};
   const b = F.writeBatch(db);
@@ -2618,7 +2625,7 @@ function renderHistory(rows, deltas){
   tile('Record', `${W} – ${L} – ${D}`);
   tile('Duels finished', String(done.length));
   tile('Win rate', done.length ? Math.round(W/done.length*100)+'%' : '—');
-  box.append(head, el('p','fine','Record is wins – losses – draws. A win is +25 rating, a loss −20, a draw ±0.'));
+  box.append(head, el('p','fine','Record is wins – losses – draws. A win gains 12 to 30 rating and a loss costs 12 to 30: the bigger the margin, the more points. A draw changes nothing.'));
   if (!rows.length){ box.append(el('p','fine','No duels yet. Challenge a friend from the Friends screen!')); return; }
   // head to head
   const byOpp = {};
