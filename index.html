@@ -145,6 +145,31 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
 .goal{font-size:12px;letter-spacing:.1em;color:var(--flare)}
 .menurow{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
 .item.locked{opacity:.5}
+.achtoast{position:absolute;left:50%;transform:translateX(-50%);top:calc(84px + env(safe-area-inset-top,0px));z-index:6;width:min(92%,380px);
+  display:flex;gap:12px;align-items:center;background:rgba(21,26,58,.96);border:1px solid rgba(255,207,90,.6);border-radius:14px;padding:10px 14px;
+  box-shadow:0 12px 30px rgba(0,0,0,.45);pointer-events:none;animation:achin .35s ease-out}
+.achtoast b{display:block;font:700 11px var(--display);letter-spacing:.14em;color:var(--flare);text-transform:uppercase}
+.achtoast span:not(.emb){font:600 15px var(--display);color:var(--ink)}
+@keyframes achin{from{transform:translate(-50%,-14px);opacity:0}to{transform:translate(-50%,0);opacity:1}}
+@media (prefers-reduced-motion: reduce){.achtoast{animation:none}}
+.emb{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;flex:none;font:700 18px var(--display);
+  background:rgba(143,151,201,.15);color:var(--muted);border:2px solid rgba(143,151,201,.3)}
+.emb.got,.achtoast .emb{background:radial-gradient(circle at 35% 30%,#ffe9a8,#ffcf5a 45%,#b8860b);color:#3a2600;border-color:#ffe9a8}
+.item.ach .pv{background:transparent}
+.item.locked-ach .nm{color:var(--muted)}
+.pbar{height:5px;border-radius:3px;background:rgba(143,151,201,.2);overflow:hidden;margin-top:2px}
+.pbar i{display:block;height:100%;background:var(--orbit);border-radius:3px}
+.achrew{font:700 13px var(--display);color:var(--muted);white-space:nowrap}
+.achdone{font:700 13px var(--display);color:var(--flare);white-space:nowrap}
+.phead{display:flex;gap:14px;align-items:center}
+.phead h2{margin:2px 0}
+.avatar{width:72px;height:72px;border-radius:50%;flex:none;border:2px solid rgba(110,231,255,.5)}
+.badgewall{display:flex;flex-wrap:wrap;gap:8px}
+.badge{display:flex;align-items:center;gap:8px;background:rgba(143,151,201,.08);border-radius:999px;padding:4px 12px 4px 4px;font:600 12px var(--display);letter-spacing:.03em}
+.badge .emb{width:26px;height:26px;font-size:13px;border-width:1px}
+.namebtn{background:none;border:none;color:inherit;font:inherit;text-align:left;padding:0;cursor:pointer;text-decoration:underline;text-decoration-color:rgba(143,151,201,.35);text-underline-offset:3px}
+.namebtn:hover{color:var(--orbit)}
+#profileCard{overflow-y:auto}
 .sgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .stat{background:rgba(143,151,201,.07);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:2px;min-width:0}
 .stat span{font:600 10.5px var(--display);letter-spacing:.1em;color:var(--muted);text-transform:uppercase}
@@ -208,6 +233,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
     <div class="menurow">
       <button class="ghost" id="missionsBtn" type="button">MISSIONS</button>
       <button class="ghost" id="statsBtn" type="button">STATS</button>
+      <button class="ghost" id="achBtn" type="button">BADGES</button>
       <button class="ghost storebtn" id="storeBtn1" type="button">★ STORE</button>
     </div>
     <p class="how">Tap, click or <kbd>Space</kbd> to leave orbit.<br>Skip a planet for bonus points. Every landing earns ★, and so does every ★ you catch. Spend them on trails.</p>
@@ -251,6 +277,23 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
 
   <div class="panel solid" id="mResult" hidden>
     <div class="card" id="mResultCard" aria-live="polite"></div>
+  </div>
+
+  <div class="achtoast" id="achToast" role="status" aria-live="polite" hidden></div>
+
+  <div class="panel solid" id="achPanel" hidden>
+    <div class="card store">
+      <div class="storehead">
+        <div><span class="eyebrow">Achievements</span><h2>Badges</h2></div>
+        <div class="bal" id="achCount">0 / 0</div>
+      </div>
+      <div class="items" id="achBody"></div>
+      <button class="ghost" id="achBack" type="button" style="align-self:flex-start">BACK</button>
+    </div>
+  </div>
+
+  <div class="panel solid" id="profilePanel" hidden>
+    <div class="card store" id="profileCard" aria-live="polite"></div>
   </div>
 
   <div class="panel solid" id="statsPanel" hidden>
@@ -386,7 +429,7 @@ let ships=['dart'], shipEq='dart', upg={core:0,magnet:0,sight:0,lucky:0}, shield
 const LIFE_KEYS = ['flights','points','time','longest','jumps','landings','skips','planetsSkipped','bigSkip',
   'starsEarned','starsSpent','starsCaught','wormholes','bounces','glass','shieldSaves',
   'dCollapse','dLost','dCrash','dBlackHole','dAsteroid','dTime','mAttempts'];
-let life = {}, runClock = 0;
+let life = {}, runClock = 0, achs = [];
 function cleanLife(o){
   o = o || {}; const l = {};
   for (const k of LIFE_KEYS) l[k] = Math.max(0, +o[k] || 0);
@@ -423,12 +466,13 @@ function cleanProgress(o){
     missions:[...new Set((Array.isArray(o.missions) ? o.missions : []).filter(x=>MISSION_IDS.includes(x)))],
     themes:th, theme:te, rates:rt,
     launches:fxList(o.launches, LAUNCH_FX), launch:fxPick(o.launch, o.launches, LAUNCH_FX),
-    lands:fxList(o.lands, LAND_FX), land:fxPick(o.land, o.lands, LAND_FX), life:cleanLife(o.life)};
+    lands:fxList(o.lands, LAND_FX), land:fxPick(o.land, o.lands, LAND_FX), life:cleanLife(o.life),
+    achs:[...new Set((Array.isArray(o.achs) ? o.achs : []).filter(x=>typeof x==='string' && /^[a-z0-9]{1,4}$/.test(x)))]};
 }
 function applyProgress(o){
   const p = cleanProgress(o);
   best=p.best; bank=p.stars; games=p.games; owned=p.owned; equipped=p.trail;
-  ships=p.ships; shipEq=p.ship; upg=p.upg; shields=p.shields; doubles=p.doubles; missionsDone=p.missions; life=p.life;
+  ships=p.ships; shipEq=p.ship; upg=p.upg; shields=p.shields; doubles=p.doubles; missionsDone=p.missions; life=p.life; achs=p.achs;
   themes=p.themes; themeEq=p.theme; rates=p.rates; applyTheme();
   launches=p.launches; launchEq=p.launch; lands=p.lands; landEq=p.land;
 }
@@ -436,7 +480,7 @@ function currentProgress(){ return {best, stars:bank, games, owned:owned.slice()
   ships:ships.slice(), ship:shipEq, upg:{...upg}, shields, doubles, missions:missionsDone.slice(),
   themes:themes.slice(), theme:themeEq, rates:{...rates},
   launches:launches.slice(), launch:launchEq, lands:lands.slice(), land:landEq,
-  life:{...life, recent:(life.recent||[]).slice()}}; }
+  life:{...life, recent:(life.recent||[]).slice()}, achs:achs.slice()}; }
 // guest progress (migrates the first version's keys)
 const guestStart = _store.guest || {best:_store.starhopBest, stars:_store.starhopStars, games:_store.starhopGames, owned:_store.starhopOwned, trail:_store.starhopTrail};
 applyProgress(guestStart);
@@ -475,6 +519,7 @@ async function cloudSave(){
   const {F, db} = fb;
   try {
     await F.setDoc(F.doc(db,'users',uid), {...body, callsign, updatedAt:F.serverTimestamp()}, {merge:true}); lastCloud=json;
+    publishProfile();
     if (!boardMsg) setSync('Saved to your pilot profile.');
   } catch(e){ setSync('Could not reach the cloud save. Your progress is kept on this device and will sync next time.'); }
   cloudBusy=false;
@@ -581,6 +626,7 @@ function login(data, silent){
   if (cache){
     merged.missions = [...new Set([...cloud.missions, ...cache.missions])];
     merged.rates = {...cloud.rates}; for (const k in cache.rates) merged.rates[k] = Math.max(merged.rates[k]||0, cache.rates[k]);
+    merged.achs = [...new Set([...cloud.achs, ...cache.achs])];
   }
   callsign = String(data.callsign||'Pilot').slice(0,16);
   mode='pilot'; applyProgress(merged); lastCloud = JSON.stringify(cloud);
@@ -588,7 +634,9 @@ function login(data, silent){
   F.getDoc(F.doc(db,'leaderboard',uid)).then(sn=>{ lastBoardBest = sn.exists() ? (+sn.data().best||0) : 0;
     if (!sn.exists()) F.setDoc(F.doc(db,'leaderboard',uid), {callsign, best:0, updatedAt:F.serverTimestamp()}).catch(()=>{}); }).catch(()=>{});
   checkAdmin();
+  pilotSince = data.joined && data.joined.toDate ? dayKey(data.joined.toDate()) : (pilotSince || dayKey());
   saveProgress(true);
+  setTimeout(()=>{ checkAch(); publishProfile(); }, 400);
   acctState='in';
   if (state==='menu') reset();
   refreshUI(); renderAcct(); renderRanks();
@@ -602,7 +650,7 @@ function checkAdmin(){
 function leavePilot(){
   mode='guest'; callsign=''; isAdmin=false; runStartP=null;
   applyProgress(_store.guest);
-  lastCloud=''; lastBoardBest=0;
+  lastCloud=''; lastBoardBest=0; lastProfile=''; pilotSince='';
   if (state==='menu') reset();
   refreshUI();
 }
@@ -626,6 +674,7 @@ async function deleteAccount(){
     await F.deleteDoc(F.doc(db,'leaderboard',uid));
     await F.deleteDoc(F.doc(db,'runs',uid)).catch(()=>{});
     await F.deleteDoc(F.doc(db,'callsigns',callsign.toLowerCase())).catch(()=>{});
+    await F.deleteDoc(F.doc(db,'profiles',uid)).catch(()=>{});
     await F.deleteDoc(F.doc(db,'users',uid));
     const gone = callsign;
     _store.pilotCache = null; flush();
@@ -744,7 +793,8 @@ function renderRanks(){
   rankRows.forEach((r,i)=>{
     const li=document.createElement('li'); if (r.id===uid && mode==='pilot') li.className='me';
     const a=document.createElement('span'); a.className='pos'; a.textContent=(i+1)+'.';
-    const b=document.createElement('span'); b.className='nm'; b.textContent=String(r.callsign||'Pilot').slice(0,16);
+    const b=document.createElement('button'); b.type='button'; b.className='nm namebtn'; b.textContent=String(r.callsign||'Pilot').slice(0,16);
+    b.title='View pilot profile'; b.addEventListener('click',()=>openProfile(r.id, b.textContent, 'ranks'));
     const c=document.createElement('span'); c.className='sc'; c.textContent=Math.max(0,+r.best||0);
     li.append(a,b,c);
     if (isAdmin && r.id!==uid){
@@ -810,7 +860,7 @@ function renderAuth(){
     const kv = el('div','kv'); kv.append(el('span',null,'CALLSIGN'), el('span',null,callsign), el('span',null,'EMAIL'), el('span',null,userEmail||'—'),
       el('span',null,'BEST'), el('span',null,String(best)), el('span',null,'STARS'), el('span',null,'★'+bank));
     const priv = el('p','fine'); const pl = el('a',null,'Privacy policy'); pl.href='privacy.html'; pl.target='_blank'; pl.rel='noopener'; priv.append(pl);
-    const row = el('div','row'); row.append(btn('ghost','LOG OUT',logout), btn('ghost danger','DELETE MY ACCOUNT',()=>{ authView='delete'; delVerified=false; renderAuth(); }));
+    const row = el('div','row'); row.append(btn('ghost','MY PROFILE',()=>openProfile(uid, callsign, 'menu')), btn('ghost','LOG OUT',logout), btn('ghost danger','DELETE MY ACCOUNT',()=>{ authView='delete'; delVerified=false; renderAuth(); }));
     c.append(kv, row, priv, back);
     return;
   }
@@ -897,6 +947,8 @@ function showPanel(which){
   $('over').hidden = which!=='over';
   $('storePanel').hidden = true;
   $('statsPanel').hidden = true;
+  $('achPanel').hidden = true;
+  $('profilePanel').hidden = true;
   $('missionsPanel').hidden = which!=='missions';
   $('mResult').hidden = which!=='mresult';
   if (which!=='over' && which!=='mresult' && (state==='dead' || state==='won')){ curMission=null; state='menu'; reset(); }
@@ -1103,7 +1155,7 @@ function tutLanded(){
   tut.step++;
   if (tut.step >= 4){
     showTip(4, 3500); tut = null;
-    _store.tutDone = true; flush(); track('tutorialDone');
+    _store.tutDone = true; flush(); track('tutorialDone'); setTimeout(checkAch, 3600);
   } else showTip(tut.step);
 }
 function tutMissed(){
@@ -1179,7 +1231,7 @@ function die(cause){
   if (tut){ tutMissed(); return; }
   if (curMission){
     deathCause = cause; state='dead';
-    noteDeath(cause); life.time += runClock;
+    noteDeath(cause); life.time += runClock; setTimeout(checkAch, 900);
     burst(ship.x,ship.y,'255,93,122',36,240); shake = reduceMotion?0:14;
     beep(180,0.45,'sawtooth',0.07,-140);
     setTimeout(()=>showMResult(false), 700);
@@ -1192,6 +1244,7 @@ function die(cause){
   beep(180,0.45,'sawtooth',0.07,-140);
   games++;
   if (!_store.firstRunDone){ _store.firstRunDone = true; track('firstRuns'); }
+  setTimeout(checkAch, 900);
   setSync(mode==='pilot' ? 'Saving to your pilot profile…' : 'Guest progress is saved in this browser. Sign up to save it to the cloud and join the leaderboard.');
   saveProgress(true);
   postRunScore(score);
@@ -1604,12 +1657,185 @@ function renderStats(){
 }
 function openStats(from){
   prevPanel = from;
-  for (const id of ['menu','over','auth','ranksPanel','missionsPanel','mResult','storePanel']) $(id).hidden=true;
+  for (const id of ['menu','over','auth','ranksPanel','missionsPanel','mResult','storePanel','achPanel','profilePanel']) $(id).hidden=true;
   $('statsPanel').hidden=false; renderStats(); $('statsBody').scrollTop = 0;
 }
 $('statsBtn').addEventListener('click', ()=>openStats('menu'));
 $('overStats').addEventListener('click', ()=>openStats('over'));
 $('statsBack').addEventListener('click', ()=>showPanel(prevPanel));
+
+// ---------- achievements ----------
+const sumRates = () => MISSIONS.reduce((a,m)=>a+(rates[m.id]||0),0);
+const ACH = [
+  // [id, category, glyph, name, description, reward, progress() -> [current, target]]
+  ['f1','Flights','↗','First Flight','Finish your first flight.',5, ()=>[games,1]],
+  ['f2','Flights','↗','Regular','Finish 25 flights.',15, ()=>[games,25]],
+  ['f3','Flights','↗','Frequent Flyer','Finish 100 flights.',40, ()=>[games,100]],
+  ['f4','Flights','↗','Veteran Pilot','Finish 500 flights.',100, ()=>[games,500]],
+  ['s1','Score','▲','Liftoff','Reach planet 10 in one flight.',5, ()=>[best,10]],
+  ['s2','Score','▲','High Orbit','Reach planet 25 in one flight.',15, ()=>[best,25]],
+  ['s3','Score','▲','Deep Space','Reach planet 50 in one flight.',40, ()=>[best,50]],
+  ['s4','Score','▲','Edge of the Galaxy','Reach planet 100 in one flight.',100, ()=>[best,100]],
+  ['p1','Score','▲','Point Collector','Score 1,000 points in total.',30, ()=>[life.points,1000]],
+  ['k1','Skill','»','Leapfrog','Skip over a planet.',5, ()=>[life.planetsSkipped,1]],
+  ['k2','Skill','»','Long Jump','Skip 3 planets in a single jump.',20, ()=>[life.bigSkip,3]],
+  ['k3','Skill','»','Hopscotch Champion','Skip 100 planets in total.',40, ()=>[life.planetsSkipped,100]],
+  ['j1','Skill','»','Thousand Jumps','Make 1,000 jumps.',50, ()=>[life.jumps,1000]],
+  ['l1','Skill','»','Sharpshooter','Land 90% of your jumps, over at least 100 jumps.',40,
+      ()=>[life.jumps>=100 ? Math.round(Math.min(life.landings,life.jumps)/life.jumps*100) : 0, 90]],
+  ['t1','Skill','»','Long Haul','Keep one flight going for 3 minutes.',30, ()=>[Math.floor(life.longest),180]],
+  ['t2','Skill','»','Dedicated','Spend 1 hour flying in total.',40, ()=>[Math.floor(life.time/60),60]],
+  ['st1','Stars','★','Star Catcher','Catch 50 floating stars.',15, ()=>[life.starsCaught,50]],
+  ['st2','Stars','★','Star Rich','Earn 1,000 stars in total.',40, ()=>[life.starsEarned,1000]],
+  ['st3','Stars','★','Big Spender','Spend 500 stars in the Store.',30, ()=>[life.starsSpent,500]],
+  ['w1','Space','◎','Through the Wormhole','Use a wormhole.',10, ()=>[life.wormholes,1]],
+  ['w2','Space','◎','Wormhole Regular','Use 25 wormholes.',30, ()=>[life.wormholes,25]],
+  ['b1','Space','◎','Pinball Wizard','Bounce off 25 bumpers.',20, ()=>[life.bounces,25]],
+  ['g1','Space','◎','Glass Breaker','Shatter 25 glass planets.',20, ()=>[life.glass,25]],
+  ['sh1','Space','◎','Saved by the Shield','Have a shield save you.',10, ()=>[life.shieldSaves,1]],
+  ['e1','Endings','✕','Spaghettified','Get swallowed by a black hole.',5, ()=>[life.dBlackHole,1]],
+  ['e2','Endings','✕','Rock Bottom','Hit an asteroid.',5, ()=>[life.dAsteroid,1]],
+  ['e3','Endings','✕','Lost in Space','Drift off into deep space 25 times.',10, ()=>[life.dLost,25]],
+  ['e4','Endings','✕','Too Slow','Let 25 planets collapse under you.',10, ()=>[life.dCollapse,25]],
+  ['m1','Missions','◆','Mission Ready','Clear your first mission.',5, ()=>[missionsDone.length,1]],
+  ['m2','Missions','◆','Pack 1 Complete','Clear all 10 missions in Pack 1.',50, ()=>[MISSIONS.slice(0,10).filter(m=>missionsDone.includes(m.id)).length,10]],
+  ['m3','Missions','◆','Hazard Expert','Clear all 20 missions.',100, ()=>[missionsDone.length,20]],
+  ['m4','Missions','◆','Perfectionist','Earn 3 stars on 10 missions.',60, ()=>[MISSIONS.filter(m=>(rates[m.id]||0)===3).length,10]],
+  ['m5','Missions','◆','Flawless','Earn all 60 mission stars.',200, ()=>[sumRates(),60]],
+  ['c1','Collection','◇','Trailblazer','Own every trail.',30, ()=>[owned.length,TRAILS.length]],
+  ['c2','Collection','◇','Full Hangar','Own every ship.',40, ()=>[ships.length,SHIPS.length]],
+  ['c3','Collection','◇','World Collector','Own every planet theme.',40, ()=>[themes.length,THEMES.length]],
+  ['c4','Collection','◇','Showtime','Own every launch and landing effect.',40, ()=>[launches.length+lands.length,LAUNCH_FX.length+LAND_FX.length]],
+  ['c5','Collection','◇','Fully Upgraded','Max out every upgrade.',60, ()=>[Object.values(upg).reduce((a,b)=>a+b,0),Object.values(UPG_MAX).reduce((a,b)=>a+b,0)]],
+  ['a1','Pilot','✓','Pilot Licence','Create a pilot account.',10, ()=>[mode==='pilot'?1:0,1]],
+  ['a2','Pilot','✓','Graduate','Finish the tutorial.',5, ()=>[_store.tutDone?1:0,1]],
+];
+const ACH_IDS = ACH.map(a=>a[0]);
+const achById = id => ACH.find(a=>a[0]===id);
+let achQueue = [], achTimer = null;
+function checkAch(){
+  const got = [];
+  for (const a of ACH){
+    if (achs.includes(a[0])) continue;
+    const [cur, target] = a[6]();
+    if (cur >= target){ achs.push(a[0]); bank += a[5]; life.starsEarned += a[5]; got.push(a); }
+  }
+  if (!got.length) return;
+  saveProgress(true); refreshUI();
+  for (const a of got) achQueue.push(a);
+  if (!achTimer) nextAchToast();
+  beep(784,0.12,'triangle',0.06,0); setTimeout(()=>beep(1175,0.22,'triangle',0.06,200),110);
+}
+function nextAchToast(){
+  const t = $('achToast'), a = achQueue.shift();
+  if (!a){ t.hidden = true; achTimer = null; return; }
+  t.textContent = '';
+  const g = el('span','emb',a[2]), tx = el('div');
+  tx.append(el('b',null,'Achievement unlocked'), el('span',null,`${a[3]}  ·  +★${a[5]}`));
+  t.append(g, tx); t.hidden = false;
+  achTimer = setTimeout(nextAchToast, 2800);
+}
+function renderAch(){
+  const box = $('achBody'); box.textContent='';
+  $('achCount').textContent = `${achs.length} / ${ACH.length}`;
+  let cat = '';
+  for (const a of ACH){
+    if (a[1] !== cat){ cat = a[1]; box.append(el('div','sect', cat.toUpperCase())); }
+    const done = achs.includes(a[0]);
+    const [cur, target] = a[6]();
+    const r = el('div','item ach'+(done?' on':' locked-ach'));
+    const pv = el('div','pv'); pv.append(el('span','emb'+(done?' got':''), a[2]));
+    const tx = el('div','txt'); tx.append(el('span','nm',a[3]), el('span','ds',a[4]));
+    if (!done && target > 1){
+      const bar = el('div','pbar'); const fill = el('i'); fill.style.width = Math.min(100, cur/target*100)+'%'; bar.append(fill);
+      tx.append(bar, el('span','ds', `${fmtNum(Math.min(cur,target))} / ${fmtNum(target)}`));
+    }
+    const right = el('span', done ? 'achdone' : 'achrew', done ? '✓ ★'+a[5] : '★'+a[5]);
+    r.append(pv, tx, right); box.append(r);
+  }
+}
+function openAch(from){
+  prevPanel = from;
+  for (const id of ['menu','over','auth','ranksPanel','missionsPanel','mResult','storePanel','statsPanel','profilePanel']) $(id).hidden=true;
+  $('achPanel').hidden=false; renderAch(); $('achBody').scrollTop = 0;
+}
+$('achBtn').addEventListener('click', ()=>openAch('menu'));
+$('achBack').addEventListener('click', ()=>showPanel(prevPanel));
+
+// ---------- pilot profiles (public) ----------
+let lastProfile = '', pilotSince = '', profFrom = 'menu';
+function profileBody(){
+  return {callsign, flights:games, missions:missionsDone.length, mStars:sumRates(), badges:achs.slice(),
+    ship:shipEq, trail:equipped, theme:themeEq, since:pilotSince || dayKey()};
+}
+async function publishProfile(){
+  if (mode!=='pilot' || !fb || !uid) return;
+  const body = profileBody(), j = JSON.stringify(body);
+  if (j === lastProfile) return;
+  const {F, db} = fb;
+  try { await F.setDoc(F.doc(db,'profiles',uid), {...body, updatedAt:F.serverTimestamp()}); lastProfile = j; } catch(e){}
+}
+function nameOf(list, id){ const x = list.find(t=>t.id===id); return x ? x.name : '—'; }
+async function openProfile(id, fallbackName, from){
+  profFrom = from || 'menu';
+  for (const pid of ['menu','over','auth','ranksPanel','missionsPanel','mResult','storePanel','statsPanel','achPanel']) $(pid).hidden=true;
+  $('profilePanel').hidden=false;
+  const c = $('profileCard'); c.textContent='';
+  c.append(el('span','eyebrow','Pilot profile'), el('h2',null, fallbackName || 'Loading…'), el('span','spin'));
+  let prof = null, board = null, rank = null;
+  if (fb){
+    const {F, db} = fb;
+    try {
+      const [ps, bs] = await Promise.all([F.getDoc(F.doc(db,'profiles',id)), F.getDoc(F.doc(db,'leaderboard',id))]);
+      prof = ps.exists() ? ps.data() : null; board = bs.exists() ? bs.data() : null;
+      if (board && (+board.best||0) > 0){
+        const higher = await F.getCountFromServer(F.query(F.collection(db,'leaderboard'), F.where('best','>',+board.best||0))).then(x=>x.data().count, ()=>null);
+        if (higher !== null) rank = higher + 1;
+      }
+    } catch(e){}
+  }
+  if (id === uid && mode==='pilot') prof = {...profileBody(), ...(prof||{}), ...profileBody()};   // your own: always current
+  renderProfile(prof, board, rank, fallbackName, id===uid && mode==='pilot');
+}
+function renderProfile(p, board, rank, fallbackName, mine){
+  const c = $('profileCard'); c.textContent='';
+  const name = String((p && p.callsign) || (board && board.callsign) || fallbackName || 'Pilot').slice(0,16);
+  const head = el('div','phead');
+  const av = document.createElement('canvas'); av.width=128; av.height=128; av.className='avatar';
+  const x = av.getContext('2d'), trail = TRAILS.find(t=>t.id===(p&&p.trail)) || TRAILS[0], th = THEMES.find(t=>t.id===(p&&p.theme)) || THEMES[0];
+  const g = x.createRadialGradient(64,64,10,64,64,64); g.addColorStop(0, th.bg[0]); g.addColorStop(1, th.bg[1]);
+  x.fillStyle=g; x.beginPath(); x.arc(64,64,64,0,Math.PI*2); x.fill();
+  for (let i=0;i<14;i++){ const a=i/14; x.strokeStyle=`rgba(${trail.col(a)},${a})`; x.lineWidth=2+a*8; x.lineCap='round';
+    x.beginPath(); x.moveTo(18+a*40, 96-a*30); x.lineTo(18+(a+1/14)*40, 96-(a+1/14)*30); x.stroke(); }
+  x.save(); x.translate(70,58); x.rotate(-0.6); x.scale(3.2,3.2); drawShip(x, (p&&p.ship)||'dart', 1.2); x.restore();
+  const hx = el('div'); hx.append(el('span','eyebrow', mine ? 'Your pilot profile' : 'Pilot profile'), el('h2',null,name));
+  hx.append(el('p','fine', p && p.since ? `Pilot since ${fmtDay(p.since)}` : 'Pilot'));
+  head.append(av, hx); c.append(head);
+  const grid = el('div','sgrid');
+  const stat = (label, value, cls) => { const t=el('div','stat'); t.append(el('span',null,label), el('strong',cls||null,value)); grid.append(t); };
+  stat('Leaderboard best', board ? fmtNum(+board.best||0) : '—', 'gold');
+  stat('Rank', rank ? '#'+rank : '—');
+  stat('Flights', p ? fmtNum(+p.flights||0) : '—');
+  stat('Missions cleared', p ? `${+p.missions||0} / ${MISSIONS.length}` : '—');
+  stat('Mission stars', p ? `★ ${+p.mStars||0} / ${MISSIONS.length*3}` : '—', 'gold');
+  stat('Badges', p ? `${(p.badges||[]).filter(b=>ACH_IDS.includes(b)).length} / ${ACH.length}` : '—');
+  c.append(grid);
+  if (p){
+    const kit = el('p','fine', `Flies the ${nameOf(SHIPS,p.ship)} with the ${nameOf(TRAILS,p.trail).toLowerCase()} trail over ${nameOf(THEMES,p.theme).toLowerCase()} worlds.`);
+    c.append(kit);
+    const earned = (p.badges||[]).filter(b=>ACH_IDS.includes(b));
+    c.append(el('div','sect','BADGES'));
+    if (earned.length){
+      const wall = el('div','badgewall');
+      for (const id of earned){ const a = achById(id); const b = el('span','badge'); b.append(el('span','emb got',a[2]), el('span',null,a[3])); b.title = a[4]; wall.append(b); }
+      c.append(wall);
+    } else c.append(el('p','fine','No badges yet.'));
+  } else c.append(el('p','fine', 'This pilot hasn’t flown since profiles arrived, so only their leaderboard score is shown.'));
+  const row = el('div','row');
+  row.append(btn('ghost','BACK',()=>showPanel(profFrom)));
+  if (mine) row.append(btn('link','Badges',()=>openAch('menu')));
+  c.append(row);
+}
 
 // ---------- store ----------
 let storeTab='trails';
@@ -1618,7 +1844,7 @@ function priceBtn(cost, fn){
                     : Object.assign(btn('act locked', '★'+cost, null), {disabled:true});
 }
 function stateBtn(cls, label, fn){ const b = btn('act '+cls, label, fn); if (!fn) b.disabled = true; return b; }
-function bought(purchase){ saveProgress(true); if (purchase) beep(990,0.2,'triangle',0.06,500); refreshUI(); renderStore(); }
+function bought(purchase){ saveProgress(true); checkAch(); if (purchase) beep(990,0.2,'triangle',0.06,500); refreshUI(); renderStore(); }
 function renderStore(){
   $('sBal').textContent = bank;
   for (const b of $('storeTabs').querySelectorAll('button')) b.setAttribute('aria-selected', String(b.dataset.tab===storeTab));
@@ -1680,7 +1906,7 @@ function renderStore(){
 }
 function openStore(from){
   prevPanel = from;
-  for (const id of ['menu','over','auth','ranksPanel','missionsPanel','mResult','statsPanel']) $(id).hidden=true;
+  for (const id of ['menu','over','auth','ranksPanel','missionsPanel','mResult','statsPanel','achPanel','profilePanel']) $(id).hidden=true;
   $('storePanel').hidden=false; renderStore();
 }
 $('storeTabs').addEventListener('click', e=>{ const b=e.target.closest('button'); if (!b) return; storeTab=b.dataset.tab; renderStore(); });
@@ -1744,6 +1970,7 @@ function checkMission(){
   rates[m.id] = now; if (!missionsDone.includes(m.id)) missionsDone.push(m.id);
   track('missionClears');
   bank += earned; life.starsEarned += earned; life.time += runClock; saveProgress(true);
+  setTimeout(checkAch, 1000);
   lastResult = {got, prev, now, underPar, clean, earned, time:mTime};
   updateHud(true);
   burst(ship.x,ship.y,'255,207,90',44,240); burst(ship.x,ship.y,'110,231,255',24,160);
@@ -1755,7 +1982,7 @@ function startMission(m){
   curMission = m; reset(); state='play';
   runClock=0; life.mAttempts++;
   mTime=0; mStars=0; mSkips=0; mClose=false; runDouble=false; shieldReady=false;
-  for (const id of ['menu','over','auth','ranksPanel','storePanel','missionsPanel','mResult','statsPanel']) $(id).hidden=true;
+  for (const id of ['menu','over','auth','ranksPanel','storePanel','missionsPanel','mResult','statsPanel','achPanel','profilePanel']) $(id).hidden=true;
   $('hud').hidden=false; refreshUI(); updateHud(false);
 }
 function renderMissions(){
@@ -1818,7 +2045,7 @@ function start(){
   runDouble=false; if (doubles>0){ doubles--; runDouble=true; saveProgress(true); }
   shieldReady = shields>0;
   markRunStart();
-  for (const id of ['menu','over','auth','ranksPanel','storePanel','missionsPanel','mResult','statsPanel']) $(id).hidden=true;
+  for (const id of ['menu','over','auth','ranksPanel','storePanel','missionsPanel','mResult','statsPanel','achPanel','profilePanel']) $(id).hidden=true;
   $('hud').hidden=false; refreshUI(); updateHud(false);
 }
 function showOver(){
