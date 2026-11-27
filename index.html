@@ -766,6 +766,7 @@ function authError(e){
   if (c==='auth/network-request-failed' || c==='timeout') return 'Couldn’t reach the server. Check your connection and try again.';
   if (c==='auth/operation-not-allowed') return 'Email sign-in isn’t switched on for this game yet.';
   if (c==='permission-denied') return 'The server refused to save your pilot. Try again in a moment.';
+  if (c==='unavailable' || c==='deadline-exceeded' || c==='aborted') return 'The server was busy for a moment. Please try again.';
   return 'Something went wrong. Please try again.';
 }
 async function claimCallsign(name){
@@ -793,7 +794,8 @@ async function signup(name, email, pass){
   if (pass.length < 6){ err.textContent='Use a password with at least 6 characters.'; return; }
   go.disabled=true; err.textContent='';
   try {
-    const taken = await withTimeout(fb.F.getDoc(fb.F.doc(fb.db,'callsigns',name.toLowerCase())), 10000);
+    const csRef = fb.F.doc(fb.db,'callsigns',name.toLowerCase());
+    const taken = await withTimeout(fb.F.getDoc(csRef), 10000).catch(() => withTimeout(fb.F.getDoc(csRef), 10000));   // one retry on a hiccup
     if (taken.exists()) throw {code:'taken'};
     pendingSignup = true;
     const cred = await fb.A.createUserWithEmailAndPassword(fb.auth, email, pass);
@@ -2141,15 +2143,28 @@ function watchDuelInvites(){
   friendUnsubs.push(F.onSnapshot(F.query(F.collection(db,'duels'), F.where('b','==',uid), F.where('state','==','invited')), sn=>{
     const now = Date.now();
     duelInvites = sn.docs.map(d=>({id:d.id, ...d.data()})).filter(d => !d.createdAt || now - d.createdAt.toMillis() < 90000);
+    resolveCrossedChallenges();
     renderDuelInvite();
   }, ()=>{}));
+}
+let lastRivalUid = '';
+// Both players tapped REMATCH (or challenged each other) at once: each is waiting on their own
+// challenge. The player with the smaller ID accepts the other's and cancels their own.
+function resolveCrossedChallenges(){
+  if (!duel || duel.phase!=='lobby' || duel.me!=='a') return;
+  const cross = duelInvites.find(d => d.a === duel.oppUid);
+  if (!cross || !(uid < duel.oppUid)) return;
+  fb.F.updateDoc(fb.F.doc(fb.db,'duels',duel.id), {state:'cancelled'}).catch(()=>{});
+  exitDuel(true); acceptDuel(cross);
 }
 function renderDuelInvite(){
   const box = $('duelInvite');
   const inv = duelInvites[0];
-  if (!inv || duel || state==='play' || state==='spectate'){ box.hidden = true; return; }
+  if (!inv || (duel && duel.phase!=='over') || state==='play' || state==='spectate'){ box.hidden = true; return; }
   box.textContent = '';
-  const tx = el('div'); tx.append(el('b',null,'1V1 CHALLENGE'), el('span',null, `${String(inv.aName||'A friend').slice(0,16)} challenges you to a 1v1!`));
+  const rematch = inv.a === lastRivalUid;
+  const tx = el('div'); tx.append(el('b',null, rematch ? 'REMATCH' : '1V1 CHALLENGE'),
+    el('span',null, rematch ? `${String(inv.aName||'Your rival').slice(0,16)} wants a rematch!` : `${String(inv.aName||'A friend').slice(0,16)} challenges you to a 1v1!`));
   const acts = el('div','row'); acts.append(btn('act buy','ACCEPT',()=>acceptDuel(inv)), btn('ghost','DECLINE',()=>declineDuel(inv)));
   box.append(tx, acts); box.hidden = false;
 }
@@ -2176,6 +2191,7 @@ async function challenge(friendUid, friendName){
   lobbyTimer = setTimeout(()=>{ if (duel && duel.phase==='lobby'){ fb.F.updateDoc(fb.F.doc(fb.db,'duels',duel.id), {state:'cancelled'}).catch(()=>{}); lobbyMsg(`${duel.oppName} didn’t answer in time.`, false); } }, 60000);
 }
 async function acceptDuel(inv){
+  if (duel && duel.phase==='over') exitDuel(true);
   if (duel) return;
   duelInvites = duelInvites.filter(d=>d.id!==inv.id); renderDuelInvite();
   enterDuel({id:inv.id, me:'b', oppUid:inv.a, oppName:String(inv.aName||'Rival').slice(0,16), seed:inv.seed, phase:'lobby'});
@@ -2317,7 +2333,8 @@ function duelDie(cause){
 function finishDuel(){
   if (!duel || duel.phase==='over') return;
   if (!duel.myDone || (opp && opp.alive)) return;
-  duel.phase = 'over'; hideTip();
+  duel.phase = 'over'; hideTip(); lastRivalUid = duel.oppUid;
+  if (state==='spectate') state = 'dead';   // stop watching, so rematch challenges can show
   const mine = score, theirs = opp ? opp.score : 0;
   const res = mine > theirs ? 'win' : mine < theirs ? 'loss' : 'draw';
   life.duels++; life.duelPoints += mine; life.duelBest = Math.max(life.duelBest, mine);
@@ -2339,7 +2356,11 @@ function finishDuel(){
     c.append(el('p', res==='win' ? 'okmsg' : 'fine', res==='win' ? '+★15 for the win.' : res==='loss' ? 'Ask for a rematch!' : 'Nobody wins this one.'));
     const row = el('div','row');
     const oppUid = duel.oppUid, oppName = duel.oppName;
-    row.append(btn('play','REMATCH',()=>{ exitDuel(true); challenge(oppUid, oppName); }), btn('ghost','MENU',()=>exitDuel()));
+    row.append(btn('play','REMATCH',()=>{
+      const theirs = duelInvites.find(d => d.a === oppUid);   // they already asked: accept theirs
+      exitDuel(true);
+      if (theirs) acceptDuel(theirs); else challenge(oppUid, oppName);
+    }), btn('ghost','MENU',()=>exitDuel()));
     c.append(row);
     showDuelPanel('result');
   }, 900);
