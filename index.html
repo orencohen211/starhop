@@ -899,7 +899,15 @@ function renderRanks(){
     rankedRows.forEach((r,i)=>{
       const li=el('li', r.id===uid && mode==='pilot' ? 'me' : null);
       li.append(el('span','pos',(i+1)+'.'), btn('nm namebtn', String(r.callsign||'Pilot').slice(0,16), ()=>openProfile(r.id, r.callsign, 'ranks')));
-      const sc=el('span','sc'); sc.append(tierChip(Math.max(0,+r.rating||0))); li.append(sc); list.append(li);
+      const sc=el('span','sc'); sc.append(tierChip(Math.max(0,+r.rating||0))); li.append(sc);
+      if (isAdmin && r.id!==uid){
+        const tools=el('span','mod');
+        const ask=()=>{ tools.textContent=''; tools.append(el('span','dim',`Remove ${String(r.callsign||'Pilot').slice(0,16)} from ranked?`),
+          btn('link','Yes',async()=>{ try { await fb.F.deleteDoc(fb.F.doc(fb.db,'ratings',r.id)); } catch(e){ tools.textContent='Couldn’t remove it. Check your admin access.'; } }),
+          btn('link','No',()=>renderRanks())); };
+        tools.append(btn('link','Remove',ask)); li.append(tools);
+      }
+      list.append(li);
     });
     note.textContent = !rankedRows.length ? 'Nobody is ranked yet. Win a 1v1 against a friend to get on the board.'
       : myRating ? `You: ${tierOf(myRating.rating).name} · ${myRating.rating}` : 'Play a 1v1 to get ranked.';
