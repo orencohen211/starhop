@@ -178,6 +178,29 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
 .frow .row{gap:6px}
 .frow .act,.frow .ghost{font-size:12px;padding:6px 12px}
 #friendsBody .ranks{margin:0}
+.duelhud{position:absolute;inset:0 0 auto 0;display:flex;justify-content:space-between;gap:12px;padding:14px max(16px, env(safe-area-inset-left,0px)) 0;pointer-events:none;font-family:var(--display);z-index:3}
+.dside{display:flex;flex-direction:column;gap:2px;max-width:46%;min-width:0}
+.dside.r{align-items:flex-end;text-align:right}
+.dname{font-size:13px;letter-spacing:.08em;color:var(--orbit);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.dside.r .dname{color:#ff8cc6}
+.dscore{font-size:40px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;text-shadow:0 0 16px rgba(110,231,255,.3)}
+.dside.r .dscore{text-shadow:0 0 16px rgba(255,94,168,.35)}
+.dside.lead .dscore{color:var(--flare)}
+.dstate{font-size:10.5px;letter-spacing:.14em;color:var(--muted)}
+.duelinvite{position:absolute;left:50%;transform:translateX(-50%);top:calc(14px + env(safe-area-inset-top,0px));z-index:8;width:min(94%,430px);
+  display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:rgba(21,26,58,.97);border:1px solid rgba(255,94,168,.75);
+  border-radius:14px;padding:10px 12px;box-shadow:0 12px 30px rgba(0,0,0,.45);animation:achin .35s ease-out}
+.duelinvite b{display:block;font:700 11px var(--display);letter-spacing:.14em;color:#ff8cc6}
+.duelinvite span{font:600 14px var(--body);color:var(--ink)}
+.duelinvite .act,.duelinvite .ghost{font-size:12px;padding:7px 12px}
+.vs{display:flex;align-items:stretch;gap:8px}
+.vsside{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:4px;background:rgba(143,151,201,.08);border-radius:12px;padding:12px 8px}
+.vsside span{font:600 12px var(--display);letter-spacing:.06em;color:var(--muted);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vsside strong{font:700 40px var(--display);font-variant-numeric:tabular-nums}
+.vsside.win{box-shadow:inset 0 0 0 2px var(--flare)}
+.vsside.win strong{color:var(--flare)}
+.vsmid{align-self:center;font:700 14px var(--display);color:var(--muted)}
+.duelres.win{color:var(--flare)} .duelres.loss{color:var(--danger)}
 .sgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .stat{background:rgba(143,151,201,.07);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:2px;min-width:0}
 .stat span{font:600 10.5px var(--display);letter-spacing:.1em;color:var(--muted);text-transform:uppercase}
@@ -218,6 +241,11 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
 <div id="app">
   <canvas id="c" aria-label="Starhop game. Tap or press Space to launch from orbit."></canvas>
   <div class="tip" id="tip" role="status" aria-live="polite" hidden></div>
+  <div class="duelhud" id="duelHud" hidden>
+    <div class="dside" id="dMe"><span class="dname" id="dMeName">YOU</span><span class="dscore" id="dMeScore">0</span><span class="dstate" id="dMeState">FLYING</span></div>
+    <div class="dside r" id="dOp"><span class="dname" id="dOpName">RIVAL</span><span class="dscore" id="dOpScore">0</span><span class="dstate" id="dOpState">FLYING</span></div>
+  </div>
+  <div class="duelinvite" id="duelInvite" role="alert" hidden></div>
   <div class="hud" id="hud" hidden>
     <div class="hleft"><div class="score" id="score">0</div><div class="goal" id="hGoal" hidden></div></div>
     <div class="side">
@@ -289,6 +317,9 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
   </div>
 
   <div class="achtoast" id="achToast" role="status" aria-live="polite" hidden></div>
+
+  <div class="panel solid" id="duelLobby" hidden><div class="card" id="duelLobbyCard" aria-live="polite"></div></div>
+  <div class="panel solid" id="duelResult" hidden><div class="card" id="duelResultCard" aria-live="polite"></div></div>
 
   <div class="panel solid" id="friendsPanel" hidden>
     <div class="card store">
@@ -458,7 +489,8 @@ let ships=['dart'], shipEq='dart', upg={core:0,magnet:0,sight:0,lucky:0}, shield
 // lifetime stats (shown in the Stats window); they start counting from the first run after this update
 const LIFE_KEYS = ['flights','points','time','longest','jumps','landings','skips','planetsSkipped','bigSkip',
   'starsEarned','starsSpent','starsCaught','wormholes','bounces','glass','shieldSaves',
-  'dCollapse','dLost','dCrash','dBlackHole','dAsteroid','dTime','mAttempts'];
+  'dCollapse','dLost','dCrash','dBlackHole','dAsteroid','dTime','mAttempts',
+  'duels','duelWins','duelLosses','duelDraws','duelBest','duelPoints','duelStreak','duelBestStreak'];
 let life = {}, runClock = 0, achs = [];
 function cleanLife(o){
   o = o || {}; const l = {};
@@ -997,6 +1029,8 @@ function showPanel(which){
   $('statsPanel').hidden = true;
   $('achPanel').hidden = true;
   $('friendsPanel').hidden = true;
+  $('duelLobby').hidden = true;
+  $('duelResult').hidden = true;
   $('profilePanel').hidden = true;
   $('missionsPanel').hidden = which!=='missions';
   $('mResult').hidden = which!=='mresult';
@@ -1028,10 +1062,14 @@ function beep(freq, dur, type='sine', vol=0.08, slide=0){
 // ---------- canvas ----------
 const cv = $('c'), ctx = cv.getContext('2d');
 let W=400, H=700, DPR=1;
+let duel = null, viewScale = 1;
+const DUEL_W = 400;   // in a 1v1 both players get the same world width, scaled to fit their screen
 function resize(){
   const r = cv.getBoundingClientRect(); DPR = Math.min(2, window.devicePixelRatio||1);
-  W = Math.max(280, r.width); H = Math.max(400, r.height);
-  cv.width = Math.round(W*DPR); cv.height = Math.round(H*DPR);
+  const vw = Math.max(280, r.width), vh = Math.max(400, r.height);
+  viewScale = duel && duel.phase!=='lobby' ? vw / DUEL_W : 1;
+  W = vw / viewScale; H = vh / viewScale;
+  cv.width = Math.round(vw*DPR); cv.height = Math.round(vh*DPR);
 }
 addEventListener('resize', resize); resize();
 
@@ -1080,7 +1118,7 @@ function addNextPlanet(){
   planets.push(p0);
   if (hz) addHazard(hz, last, p0);
   // missions have no floating stars: their only reward is for completing them
-  const n = curMission ? 0 : (rnd()<.75 ? (rnd()<.35?2:1) : 0);
+  const n = (curMission || duel) ? 0 : (rnd()<.75 ? (rnd()<.35?2:1) : 0);
   for (let i=0;i<n;i++){
     const t = (i+1)/(n+1), off=(rnd()-.5)*90;
     stars.push({x:Math.min(W-16,Math.max(16,last.x+(x-last.x)*t+off)), y:last.y+(p0.y-last.y)*t, got:false, ph:rnd()*6});
@@ -1130,7 +1168,7 @@ function hazardStep(s, dt){
       if (d < h.r+6 && d > 0){
         const nx=dx/d, ny=dy/d, dot=s.vx*nx+s.vy*ny;
         if (dot<0){ s.vx -= 2*dot*nx; s.vy -= 2*dot*ny; }
-        s.x = h.x+nx*(h.r+7); s.y = h.y+ny*(h.r+7); s.from=null; s.ft=0; h.hit=time; life.bounces++;
+        s.x = h.x+nx*(h.r+7); s.y = h.y+ny*(h.r+7); s.from=null; s.ft=0; h.hit=time; life.bounces++; if (duel) duelSend({t:'V', x:r1(s.x), y:r1(s.y), vx:r1(s.vx), vy:r1(s.vy)});
         ring(h.x,h.y,h.r,h.r+26,0.35,'255,94,168',2); beep(300,0.12,'square',0.05,500);
       }
     } else if (h.type==='worm' && s.mode==='fly' && !h.used){
@@ -1140,7 +1178,7 @@ function hazardStep(s, dt){
         s.vx = 0; s.vy = -LAUNCH_SPEED;   // exits always fire straight up
         camY = Math.min(camY, s.y - H*0.5);
         burst(s.x,s.y,'255,140,66',20,160); ring(h.x,h.y,4,40,0.4,'255,140,66',2);
-        pops.push({x:s.x, y:s.y-18, t:0, text:'WARP!'}); beep(200,0.3,'sine',0.07,900);
+        pops.push({x:s.x, y:s.y-18, t:0, text:'WARP!'}); if (duel) duelSend({t:'V', x:r1(s.x), y:r1(s.y), vx:r1(s.vx), vy:r1(s.vy)}); beep(200,0.3,'sine',0.07,900);
       }
     }
   }
@@ -1220,7 +1258,7 @@ function tutMissed(){
 }
 
 function reset(){
-  rnd = curMission ? mulberry32(curMission.seed) : Math.random;
+  rnd = curMission ? mulberry32(curMission.seed) : duel ? mulberry32(duel.seed) : Math.random;
   hazards = [];
   planets=[]; stars=[]; parts=[]; trail=[]; pops=[]; fx=[]; flash=0; score=0; maxIdx=0; runStars=0; nextIdx=1; shake=0;
   const p = makePlanet(W/2, 0, 0); p.vx=0; if (!(curMission && curMission.collapse)) p.w=1.9; planets.push(p);
@@ -1229,7 +1267,7 @@ function reset(){
   ship = {mode:'orbit', p, a:-Math.PI/2, oR:p.R, x:0,y:0,vx:0,vy:0, ft:0, otime:0, from:null};
   placeOnOrbit();
 }
-function orbitLimit(){ if (tut) return tut.step===1 ? 9999 : 9; if (curMission && curMission.collapse) return curMission.collapse; return Math.max(2.6, 5.5 - score*0.07) + upg.core*0.6; }
+function orbitLimit(){ if (tut) return tut.step===1 ? 9999 : 9; if (curMission && curMission.collapse) return curMission.collapse; return Math.max(2.6, 5.5 - score*0.07) + U('core')*0.6; }
 function earn(n, x, y){
   const g = n * (runDouble ? 2 : 1);
   runStars += g; bank += g; life.starsEarned += g;
@@ -1255,6 +1293,7 @@ function launch(){
   if (s.p.fragile){ const fp=s.p; fp.broken=true; life.glass++; burst(fp.x,fp.y,'220,235,255',30,180); ring(fp.x,fp.y,fp.r,fp.r+24,0.35,'220,235,255',2); beep(1500,0.15,'square',0.03,-1200); }
   beep(520,0.12,'triangle',0.06,300);
   launchFx(s.x, s.y, Math.atan2(s.vy, s.vx), s.from, launchEq);
+  if (duel) duelSend({t:'L', x:r1(s.x), y:r1(s.y), vx:r1(s.vx), vy:r1(s.vy), sc:score});
 }
 function capture(p){
   const s=ship, rx=s.x-p.x, ry=s.y-p.y;
@@ -1267,19 +1306,21 @@ function capture(p){
     if (tut) tutLanded();
     if (gained>1){ life.skips++; life.planetsSkipped += gained-1; life.bigSkip = Math.max(life.bigSkip, gained-1); }
     if (curMission){ if (gained>1){ mSkips++; pops.push({x:s.x, y:s.y-14, t:0, text:'SKIP!'}); } }
-    else earn(Math.random() < upg.lucky*0.15 ? 2 : 1, s.x, s.y);
+    else if (!duel) earn(Math.random() < U('lucky')*0.15 ? 2 : 1, s.x, s.y);
     updateHud(true);
     if (gained>1) burst(s.x,s.y,'255,207,90',18,160);
-    if (!curMission && score > best){ best = score; saveProgress(false); }
+    if (!curMission && !duel && score > best){ best = score; saveProgress(false); }
     beep(gained>1?880:660,0.16,'sine',0.07,gained>1?440:180);
   } else beep(330,0.1,'sine',0.05);
   burst(s.x,s.y,'110,231,255',10,90);
   landFx(s.x, s.y, p, landEq);
+  if (duel){ duelSend({t:'C', p:p.idx, px:r1(p.x), py:r1(p.y), a:s.a, r:r1(s.oR), d:p.dir, w:p.w, sc:score}); updateDuelHud(); }
   checkMission();
 }
 function die(cause){
   if (state!=='play') return;
   if (tut){ tutMissed(); return; }
+  if (duel){ duelDie(cause); return; }
   if (curMission){
     deathCause = cause; state='dead';
     noteDeath(cause); life.time += runClock; setTimeout(checkAch, 900);
@@ -1402,6 +1443,8 @@ function update(dt){
     for (const p of planets) p.spin += dt*0.3;
     return;
   }
+  if (duel && (state==='play' || state==='spectate')) duelStep(dt);
+  if (state==='spectate'){ spectateStep(dt); return; }
   if (state!=='play') return;
   runClock += dt;
 
@@ -1438,11 +1481,11 @@ function update(dt){
   }
   if (state==='play') hazardStep(s, dt);
   if (state!=='play' && state!=='dead') return;
-  const reach = 20 + upg.magnet*24;
+  const reach = 20 + U('magnet')*24;
   for (const st of stars){
     if (st.got) continue;
     const d = Math.hypot(st.x-s.x, st.y-s.y);
-    if (upg.magnet && d < reach){ const k = Math.min(1, dt*(4+upg.magnet*2)); st.x += (s.x-st.x)*k; st.y += (s.y-st.y)*k; }
+    if (U('magnet') && d < reach){ const k = Math.min(1, dt*(4+U('magnet')*2)); st.x += (s.x-st.x)*k; st.y += (s.y-st.y)*k; }
     if (Math.hypot(st.x-s.x, st.y-s.y) < 20){
       st.got=true; life.starsCaught++;
       if (curMission){ mStars++; pops.push({x:st.x, y:st.y-14, t:0, text:'+1 ★'}); updateHud(curMission.goal==='stars'); checkMission(); }
@@ -1454,8 +1497,8 @@ function update(dt){
   const target = (s.mode==='orbit'? s.p.y : Math.min(s.y, s.from? s.from.y: s.y)) - H*0.68;
   camY += (target - camY)*Math.min(1, dt*3);
   while (planets[planets.length-1].y > camY - H*1.2) addNextPlanet();
-  planets = planets.filter(p => !p.broken && (p===s.p || p.y - camY < H + 260));
-  hazards = hazards.filter(h => (h.type==='worm' ? h.oy : h.y) - camY < H + 300);
+  planets = planets.filter(p => !p.broken && (duel || p===s.p || p.y - camY < H + 260));
+  if (!duel) hazards = hazards.filter(h => (h.type==='worm' ? h.oy : h.y) - camY < H + 300);
   stars = stars.filter(st => st.y - camY < H + 100);
 }
 function updateHud(pulse){
@@ -1476,7 +1519,7 @@ function pushTrail(){ trail.push({x:ship.x,y:ship.y}); if (trail.length>26) trai
 
 // ---------- draw ----------
 function draw(){
-  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.setTransform(DPR*viewScale,0,0,DPR*viewScale,0,0);
   ctx.clearRect(0,0,W,H);
   const th = theme();
   for (const b of bg){
@@ -1540,7 +1583,7 @@ function draw(){
     ctx.fillStyle='rgba(255,207,90,.18)'; ctx.beginPath(); ctx.arc(st.x,st.y,s*2,0,Math.PI*2); ctx.fill();
     starShape(st.x,st.y,s,time*1.5+st.ph); ctx.fillStyle='#ffcf5a'; ctx.fill();
   }
-  if (ship && state!=='dead'){
+  if (ship && state!=='dead' && state!=='spectate'){
     const tr = TRAILS.find(t=>t.id===equipped) || TRAILS[0];
     for (let i=1;i<trail.length;i++){
       const a=i/trail.length;
@@ -1549,12 +1592,12 @@ function draw(){
     }
     ctx.lineCap='butt';
   }
-  if (ship && state!=='dead'){
+  if (ship && state!=='dead' && state!=='spectate'){
     let ang;
     if (ship.mode==='orbit'){
       const d=ship.p.dir, tx=-Math.sin(ship.a)*d, ty=Math.cos(ship.a)*d; ang=Math.atan2(ty,tx);
       if (state==='play' && !(curMission && curMission.blind)){
-        const len = tut ? 170 : Math.max(40 + upg.sight*25, 90 + upg.sight*45 - score*1.5);
+        const len = tut ? 170 : Math.max(40 + U('sight')*25, 90 + U('sight')*45 - score*1.5);
         const grd = ctx.createLinearGradient(ship.x,ship.y,ship.x+tx*len,ship.y+ty*len);
         grd.addColorStop(0,'rgba(233,236,255,.5)'); grd.addColorStop(1,'rgba(233,236,255,0)');
         ctx.strokeStyle=grd; ctx.lineWidth=1.5; ctx.setLineDash([3,5]);
@@ -1565,6 +1608,16 @@ function draw(){
     ctx.fillStyle='rgba(110,231,255,.25)'; ctx.beginPath(); ctx.arc(0,0,11,0,Math.PI*2); ctx.fill();
     drawShip(ctx, shipEq, time);
     ctx.restore();
+  }
+  if (duel && opp && opp.alive){
+    for (let i=1;i<opp.trail.length;i++){ const a=i/opp.trail.length; ctx.strokeStyle=`rgba(255,94,168,${a*0.6})`; ctx.lineWidth=1+a*3; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(opp.trail[i-1].x,opp.trail[i-1].y); ctx.lineTo(opp.trail[i].x,opp.trail[i].y); ctx.stroke(); }
+    ctx.lineCap='butt';
+    const oang = opp.mode==='orbit' ? Math.atan2(Math.cos(opp.a)*opp.d, -Math.sin(opp.a)*opp.d) : Math.atan2(opp.vy, opp.vx);
+    ctx.save(); ctx.globalAlpha = 0.8; ctx.translate(opp.x,opp.y); ctx.rotate(oang);
+    ctx.fillStyle='rgba(255,94,168,.35)'; ctx.beginPath(); ctx.arc(0,0,11,0,Math.PI*2); ctx.fill();
+    drawShip(ctx,'dart',time); ctx.restore();
+    ctx.fillStyle='rgba(255,160,205,.95)'; ctx.font='600 10px "Chakra Petch", sans-serif'; ctx.textAlign='center'; ctx.fillText(duel.oppName, opp.x, opp.y-17);
   }
   drawFx(ctx);
   for (const p of parts){
@@ -1684,6 +1737,13 @@ function renderStats(){
       ...deaths.map(([label,n])=>[label, fmtNum(n), totalDeaths ? Math.round(n/totalDeaths*100)+'% of endings' : null]),
       ['Most common ending', worst, null, null, true],
     ]],
+    ['1V1 DUELS', [
+      ['Duels played', fmtNum(L.duels)], ['Wins', fmtNum(L.duelWins), null, 'gold'],
+      ['Losses', fmtNum(L.duelLosses)], ['Draws', fmtNum(L.duelDraws)],
+      ['Win rate', L.duels ? Math.round(L.duelWins/L.duels*100)+'%' : '—'], ['Best duel score', L.duels ? fmtNum(L.duelBest) : '—'],
+      ['Average duel score', L.duels ? (L.duelPoints/L.duels).toFixed(1) : '—'], ['Current win streak', fmtNum(L.duelStreak)],
+      ['Best win streak', fmtNum(L.duelBestStreak), null, null, true],
+    ]],
     ['MISSIONS', [
       ['Missions cleared', `${missionsDone.length} / ${MISSIONS.length}`], ['Mission stars', `★ ${rateSum} / ${MISSIONS.length*3}`, null, 'gold'],
       ['3-star missions', fmtNum(threeStar)], ['Mission attempts', fmtNum(L.mAttempts)],
@@ -1762,6 +1822,8 @@ const ACH = [
   ['a2','Pilot','✓','Graduate','Finish the tutorial.',5, ()=>[_store.tutDone?1:0,1]],
   ['fr1','Pilot','✓','Wingmate','Make your first friend.',10, ()=>[friendPairs.length,1]],
   ['fr2','Pilot','✓','Squadron','Have 5 friends.',30, ()=>[friendPairs.length,5]],
+  ['v1','Pilot','✓','First Victory','Win a 1v1 duel.',15, ()=>[life.duelWins,1]],
+  ['v2','Pilot','✓','Duelist','Win 10 duels.',50, ()=>[life.duelWins,10]],
 ];
 const ACH_IDS = ACH.map(a=>a[0]);
 const achById = id => ACH.find(a=>a[0]===id);
@@ -1901,7 +1963,7 @@ function renderProfile(p, board, rank, fallbackName, mine, pid){
   if (mine) row.append(btn('link','My achievements',()=>openAch('menu')));
   if (!mine && mode==='pilot' && pid && board){
     const st = friendStateWith(pid);
-    if (st==='friends') row.append(stateBtn('own','FRIENDS ✓'));
+    if (st==='friends') row.append(stateBtn('own','FRIENDS ✓'), btn('play','CHALLENGE TO 1V1',()=>challenge(pid, name)));
     else if (st==='sent') row.append(stateBtn('own','REQUEST SENT'));
     else if (st==='incoming') row.append(btn('play','ACCEPT FRIEND REQUEST',()=>{ acceptFriend(incoming.find(r=>r.from===pid)).then(()=>openProfile(pid, name, profFrom)); }));
     else row.append(btn('play','ADD FRIEND',async(e)=>{ e.target.disabled=true; await addFriendById(pid, name); openProfile(pid, name, profFrom); }));
@@ -1928,6 +1990,7 @@ function startFriends(){
     friendPairs = sn.docs.map(d=>({id:d.id, other:(d.data().users||[]).find(u=>u!==me)})).filter(f=>f.other);
     loadFriendRows().then(()=>{ live(); checkAch(); });
   }, ()=>{}));
+  watchDuelInvites();
 }
 async function loadFriendRows(){
   if (!fb) return;
@@ -2036,7 +2099,7 @@ function renderFriends(){
       if (!r.me){
         const tools = el('span','mod');
         const ask = () => { tools.textContent=''; tools.append(el('span','dim',`Remove ${r.callsign}?`), btn('link','Yes',()=>removeFriend(r.id, r.callsign)), btn('link','No',()=>renderFriends())); };
-        tools.append(btn('link','Remove friend',ask)); li.append(tools);
+        tools.append(btn('act buy','1V1',()=>challenge(r.id, r.callsign)), btn('link','Remove friend',ask)); li.append(tools);
       }
       ol.append(li);
     });
@@ -2059,6 +2122,232 @@ function openFriends(from){
 }
 let friendsFrom = 'menu';
 $('friendsBack').addEventListener('click', ()=>{ friendMsg=''; showPanel(friendsFrom); });
+
+// ---------- 1v1 duels ----------
+// duels/{id}: {a, b, aName, bName, seed, state, aScore, bScore, aDone, bDone}; duels/{id}/moves: each player's moves.
+// Both players fly the same seeded map, drawn at the same width (DUEL_W) on every screen.
+let duelInvites = [], duelUnsubs = [], opp = null, duelSeq = 0, duelTick = 0, lastOppMsg = 0, seenMoves = new Set(), lobbyTimer = null;
+function U(k){ return duel ? 0 : upg[k]; }            // upgrades are switched off in duels
+const DUEL_ROLE = () => duel.me;                      // 'a' (challenger) or 'b'
+function r1(v){ return Math.round(v*10)/10; }
+function duelSend(m){
+  if (!duel || !fb || duel.phase==='over') return;
+  const {F, db} = fb;
+  F.addDoc(F.collection(db,'duels',duel.id,'moves'), {...m, by:uid, n:++duelSeq, at:F.serverTimestamp()}).catch(()=>{});
+}
+function watchDuelInvites(){
+  if (mode!=='pilot' || !fb || !uid) return;
+  const {F, db} = fb;
+  friendUnsubs.push(F.onSnapshot(F.query(F.collection(db,'duels'), F.where('b','==',uid), F.where('state','==','invited')), sn=>{
+    const now = Date.now();
+    duelInvites = sn.docs.map(d=>({id:d.id, ...d.data()})).filter(d => !d.createdAt || now - d.createdAt.toMillis() < 90000);
+    renderDuelInvite();
+  }, ()=>{}));
+}
+function renderDuelInvite(){
+  const box = $('duelInvite');
+  const inv = duelInvites[0];
+  if (!inv || duel || state==='play' || state==='spectate'){ box.hidden = true; return; }
+  box.textContent = '';
+  const tx = el('div'); tx.append(el('b',null,'1V1 CHALLENGE'), el('span',null, `${String(inv.aName||'A friend').slice(0,16)} challenges you to a 1v1!`));
+  const acts = el('div','row'); acts.append(btn('act buy','ACCEPT',()=>acceptDuel(inv)), btn('ghost','DECLINE',()=>declineDuel(inv)));
+  box.append(tx, acts); box.hidden = false;
+}
+setInterval(()=>{ if (duelInvites.length){ const now=Date.now(); duelInvites = duelInvites.filter(d => !d.createdAt || now - d.createdAt.toMillis() < 90000); } renderDuelInvite(); }, 2000);
+async function declineDuel(inv){
+  duelInvites = duelInvites.filter(d=>d.id!==inv.id); renderDuelInvite();
+  try { await fb.F.updateDoc(fb.F.doc(fb.db,'duels',inv.id), {state:'declined'}); } catch(e){}
+}
+async function challenge(friendUid, friendName){
+  if (duel || mode!=='pilot' || !fb) return;
+  const {F, db} = fb, ref = F.doc(F.collection(db,'duels'));
+  const seed = 1 + Math.floor(Math.random()*2e9);
+  enterDuel({id:ref.id, me:'a', oppUid:friendUid, oppName:String(friendName||'Rival').slice(0,16), seed, phase:'lobby'});
+  lobbyMsg(`Waiting for ${duel.oppName} to accept…`, true);
+  try {
+    await F.setDoc(ref, {a:uid, b:friendUid, aName:callsign, bName:duel.oppName, seed, state:'invited', createdAt:F.serverTimestamp(),
+      aScore:0, bScore:0, aDone:false, bDone:false});
+  } catch(e){ lobbyMsg('Couldn’t send the challenge. You can only challenge friends.', false); return; }
+  clearTimeout(lobbyTimer);
+  lobbyTimer = setTimeout(()=>{ if (duel && duel.phase==='lobby'){ fb.F.updateDoc(fb.F.doc(fb.db,'duels',duel.id), {state:'cancelled'}).catch(()=>{}); lobbyMsg(`${duel.oppName} didn’t answer in time.`, false); } }, 60000);
+}
+async function acceptDuel(inv){
+  if (duel) return;
+  duelInvites = duelInvites.filter(d=>d.id!==inv.id); renderDuelInvite();
+  enterDuel({id:inv.id, me:'b', oppUid:inv.a, oppName:String(inv.aName||'Rival').slice(0,16), seed:inv.seed, phase:'lobby'});
+  lobbyMsg('Starting…', false);
+  try { await fb.F.updateDoc(fb.F.doc(fb.db,'duels',inv.id), {state:'go'}); }
+  catch(e){ lobbyMsg('That challenge has expired.', false); }
+}
+function enterDuel(d){
+  duel = {...d, oppDone:false, oppScore:0, myDone:false, lost:false};
+  duelSeq = 0; seenMoves = new Set();
+  const {F, db} = fb;
+  duelUnsubs.push(F.onSnapshot(F.doc(db,'duels',d.id), sn=>{
+    if (!duel || !sn.exists()) return;
+    const v = sn.data();
+    if (v.state==='go' && duel.phase==='lobby'){ clearTimeout(lobbyTimer); countdown(); }
+    if ((v.state==='declined' || v.state==='cancelled') && duel.phase==='lobby'){
+      clearTimeout(lobbyTimer);
+      lobbyMsg(v.state==='declined' ? `${duel.oppName} declined the challenge.` : 'The challenge was cancelled.', false);
+    }
+    const oScore = duel.me==='a' ? v.bScore : v.aScore, oDone = duel.me==='a' ? v.bDone : v.aDone;
+    if (oDone && opp && opp.alive){ oppDies(+oScore||0); }
+  }, ()=>{}));
+  duelUnsubs.push(F.onSnapshot(F.collection(db,'duels',d.id,'moves'), sn=>{
+    for (const ch of sn.docChanges()){
+      if (ch.type!=='added' || seenMoves.has(ch.doc.id)) continue;
+      seenMoves.add(ch.doc.id);
+      const m = ch.doc.data();
+      if (duel && m.by === duel.oppUid) applyOppMove(m);
+    }
+  }, ()=>{}));
+  showDuelPanel('lobby');
+}
+function showDuelPanel(which){
+  for (const id of ['menu','over','auth','ranksPanel','missionsPanel','mResult','storePanel','statsPanel','achPanel','profilePanel','friendsPanel','duelLobby','duelResult']) $(id).hidden=true;
+  if (which) $(which==='lobby' ? 'duelLobby' : 'duelResult').hidden = false;
+  renderDuelInvite();
+}
+function lobbyMsg(text, waiting){
+  const c = $('duelLobbyCard'); c.textContent='';
+  c.append(el('span','eyebrow','1v1 duel'), el('h2',null, `You vs ${duel ? duel.oppName : 'rival'}`));
+  c.append(el('p',null,text));
+  if (waiting) c.append(el('span','spin'));
+  c.append(el('p','fine','Same map for both of you. Upgrades and power-ups are off. The best score wins.'));
+  const row = el('div','row');
+  row.append(btn('ghost', waiting ? 'CANCEL' : 'BACK', ()=>{
+    if (duel && duel.phase==='lobby' && duel.me==='a') fb.F.updateDoc(fb.F.doc(fb.db,'duels',duel.id), {state:'cancelled'}).catch(()=>{});
+    exitDuel();
+  }));
+  c.append(row);
+}
+function countdown(){
+  duel.phase = 'count';
+  const c = $('duelLobbyCard'); let n = 3;
+  const tick = () => {
+    if (!duel) return;
+    c.textContent=''; c.append(el('span','eyebrow','1v1 duel'), el('h2',null,`You vs ${duel.oppName}`), el('p','big win', String(n)));
+    c.append(el('p','fine','Get ready! Tap or press Space to launch.'));
+    beep(n ? 520 : 880, 0.15, 'triangle', 0.06, 0);
+    if (n-- > 0) setTimeout(tick, 1000); else startDuelRun();
+  };
+  tick();
+}
+function startDuelRun(){
+  duel.phase = 'play';
+  curMission = null; tut = null; hideTip(); runDouble = false; shieldReady = false;
+  resize(); reset(); state = 'play'; runClock = 0; runStartBest = best; duelTick = 0;
+  const p0 = planets[0];
+  opp = {alive:true, mode:'orbit', pIdx:0, px:p0.x, py:p0.y, a:-Math.PI/2, r:p0.R, d:p0.dir, w:p0.w, x:0, y:0, vx:0, vy:0, score:0, trail:[]};
+  lastOppMsg = performance.now();
+  showDuelPanel(null);
+  $('hud').hidden = true; $('duelHud').hidden = false;
+  $('dMeName').textContent = callsign; $('dOpName').textContent = duel.oppName;
+  updateDuelHud();
+  duelSend({t:'S'});
+  track('runs');
+}
+function applyOppMove(m){
+  lastOppMsg = performance.now();
+  if (!opp) return;
+  if (typeof m.sc === 'number') opp.score = Math.max(opp.score, m.sc);
+  if (m.t==='L' || m.t==='V'){ opp.mode='fly'; opp.x=m.x; opp.y=m.y; opp.vx=m.vx; opp.vy=m.vy; }
+  else if (m.t==='C'){ opp.mode='orbit'; opp.pIdx=m.p; opp.px=m.px; opp.py=m.py; opp.a=m.a; opp.r=m.r; opp.d=m.d; opp.w=m.w; }
+  else if (m.t==='T' && opp.mode==='fly' && typeof m.x==='number'){ opp.x=m.x; opp.y=m.y; }
+  else if (m.t==='D'){ oppDies(m.sc||opp.score); }
+  updateDuelHud();
+}
+function oppDies(finalScore){
+  if (!opp || !opp.alive) return;
+  opp.alive = false; opp.score = Math.max(opp.score, finalScore); opp.mode = 'dead';
+  burst(opp.x, opp.y, '255,94,168', 30, 220);
+  updateDuelHud();
+  if (state==='spectate' || state==='dead') finishDuel();
+}
+function oppPlanet(){ return planets.find(p=>p.idx===opp.pIdx); }
+function duelStep(dt){
+  if (!duel || !opp) return;
+  if (state==='play'){ duelTick += dt; if (duelTick >= 2){ duelTick = 0; duelSend({t:'T', sc:score, x:r1(ship.x), y:r1(ship.y)}); } }
+  if (opp.alive){
+    while (planets.length && planets[planets.length-1].idx < opp.pIdx+2) addNextPlanet();
+    if (opp.mode==='orbit'){
+      const p = oppPlanet(); const cx = p ? p.x : opp.px, cy = p ? p.y : opp.py;
+      opp.a += opp.d*opp.w*dt; opp.x = cx + Math.cos(opp.a)*opp.r; opp.y = cy + Math.sin(opp.a)*opp.r;
+    } else if (opp.mode==='fly'){
+      for (const h of hazards) if (h.type==='bh'){ const dx=h.x-opp.x, dy=h.y-opp.y, d=Math.hypot(dx,dy); if (d < BH_PULL && d > 1){ const acc=Math.min(1300,4e6/(d*d)); opp.vx+=dx/d*acc*dt; opp.vy+=dy/d*acc*dt; } }
+      opp.x += opp.vx*dt; opp.y += opp.vy*dt;
+    }
+    opp.trail.push({x:opp.x, y:opp.y}); if (opp.trail.length > 22) opp.trail.shift();
+    if (performance.now() - lastOppMsg > 20000){ duel.lost = true; oppDies(opp.score); }
+  }
+}
+function spectateStep(dt){
+  for (const p of planets){ p.spin += dt*0.3; if (p.vx){ p.x += p.vx*dt; if (p.x < p.R+6){p.x=p.R+6;p.vx*=-1;} if (p.x > W-p.R-6){p.x=W-p.R-6;p.vx*=-1;} } }
+  for (const h of hazards) if (h.type==='belt') for (const r of h.rocks){ r.x += h.vx*dt; if (h.vx>0 && r.x > W+30) r.x -= W+60; if (h.vx<0 && r.x < -30) r.x += W+60; }
+  if (opp && opp.alive){ const target = opp.y - H*0.62; camY += (target - camY)*Math.min(1, dt*2.5); }
+}
+function updateDuelHud(){
+  if (!duel) return;
+  $('dMeScore').textContent = score; $('dOpScore').textContent = opp ? opp.score : 0;
+  $('dMeState').textContent = state==='play' ? 'FLYING' : 'CRASHED';
+  $('dOpState').textContent = !opp ? '' : opp.alive ? 'FLYING' : duel.lost ? 'DISCONNECTED' : 'CRASHED';
+  $('dMe').classList.toggle('lead', score > (opp?opp.score:0)); $('dOp').classList.toggle('lead', opp && opp.score > score);
+}
+function duelDie(cause){
+  deathCause = cause; state = opp && opp.alive ? 'spectate' : 'dead';
+  noteDeath(cause); life.time += runClock;
+  burst(ship.x,ship.y,'255,93,122',36,240); shake = reduceMotion?0:14;
+  beep(180,0.45,'sawtooth',0.07,-140);
+  duel.myDone = true;
+  duelSend({t:'D', sc:score, c:String(cause).slice(0,30)});
+  const k = duel.me==='a' ? {aScore:score, aDone:true} : {bScore:score, bDone:true};
+  fb.F.updateDoc(fb.F.doc(fb.db,'duels',duel.id), k).catch(()=>{});
+  updateDuelHud();
+  if (state==='spectate'){ $('tip').innerHTML=''; $('tip').append(`You crashed at ${score}. Watching ${duel.oppName}…`); $('tip').hidden=false; }
+  else setTimeout(finishDuel, 700);
+}
+function finishDuel(){
+  if (!duel || duel.phase==='over') return;
+  if (!duel.myDone || (opp && opp.alive)) return;
+  duel.phase = 'over'; hideTip();
+  const mine = score, theirs = opp ? opp.score : 0;
+  const res = mine > theirs ? 'win' : mine < theirs ? 'loss' : 'draw';
+  life.duels++; life.duelPoints += mine; life.duelBest = Math.max(life.duelBest, mine);
+  if (res==='win'){ life.duelWins++; life.duelStreak++; life.duelBestStreak = Math.max(life.duelBestStreak, life.duelStreak); bank += 15; life.starsEarned += 15; }
+  else if (res==='loss'){ life.duelLosses++; life.duelStreak = 0; }
+  else { life.duelDraws++; }
+  if (duel.me==='a' || true) fb.F.updateDoc(fb.F.doc(fb.db,'duels',duel.id), {state:'done'}).catch(()=>{});
+  saveProgress(true); setTimeout(checkAch, 600);
+  if (res==='win'){ beep(660,0.12,'triangle',0.07,0); setTimeout(()=>beep(990,0.25,'triangle',0.07,300),130); }
+  setTimeout(()=>{
+    $('duelHud').hidden = true;
+    const c = $('duelResultCard'); c.textContent='';
+    c.append(el('span','eyebrow',`1v1 · you vs ${duel.oppName}`), el('h2', 'duelres '+res, res==='win' ? 'You win!' : res==='loss' ? 'You lose' : 'It’s a draw'));
+    const vs = el('div','vs');
+    const side = (name, sc, win) => { const d = el('div','vsside'+(win?' win':'')); d.append(el('span',null,name), el('strong',null,String(sc))); return d; };
+    vs.append(side(callsign, mine, res==='win'), el('span','vsmid','VS'), side(duel.oppName, theirs, res==='loss'));
+    c.append(vs);
+    if (duel.lost) c.append(el('p','fine',`${duel.oppName} lost connection, so their last score counts.`));
+    c.append(el('p', res==='win' ? 'okmsg' : 'fine', res==='win' ? '+★15 for the win.' : res==='loss' ? 'Ask for a rematch!' : 'Nobody wins this one.'));
+    const row = el('div','row');
+    const oppUid = duel.oppUid, oppName = duel.oppName;
+    row.append(btn('play','REMATCH',()=>{ exitDuel(true); challenge(oppUid, oppName); }), btn('ghost','MENU',()=>exitDuel()));
+    c.append(row);
+    showDuelPanel('result');
+  }, 900);
+}
+function exitDuel(keepPanels){
+  clearTimeout(lobbyTimer);
+  duelUnsubs.forEach(u=>{ try{u();}catch(e){} }); duelUnsubs = [];
+  duel = null; opp = null;
+  $('duelHud').hidden = true; hideTip();
+  resize(); state = 'menu'; reset();
+  if (!keepPanels){ showPanel('menu'); }
+  $('duelLobby').hidden = true; $('duelResult').hidden = true;
+  renderDuelInvite();
+}
+addEventListener('pagehide', ()=>{ if (duel && duel.phase==='play' && state==='play') duelSend({t:'D', sc:score, c:'Left the game'}); });
 
 // ---------- store ----------
 let storeTab='trails';

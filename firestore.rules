@@ -129,6 +129,48 @@ service cloud.firestore {
         && request.resource.data.at == request.time;
     }
 
+    // 1v1 duels between friends. Only the two players can see a duel; each can only
+    // change the state and their own score. Moves are append-only.
+    function inDuel(d) { return signedIn() && (request.auth.uid == d.a || request.auth.uid == d.b); }
+    function areFriends(x, y) {
+      return exists(/databases/$(database)/documents/friendships/$(x < y ? x + '_' + y : y + '_' + x));
+    }
+    match /duels/{id} {
+      allow read: if signedIn() && (request.auth.uid == resource.data.a || request.auth.uid == resource.data.b);
+      allow create: if signedIn()
+        && !isBanned(request.auth.uid)
+        && request.resource.data.keys().hasOnly(['a', 'b', 'aName', 'bName', 'seed', 'state', 'createdAt',
+                                                  'aScore', 'bScore', 'aDone', 'bDone'])
+        && request.resource.data.a == request.auth.uid
+        && request.resource.data.b is string
+        && request.resource.data.b != request.auth.uid
+        && areFriends(request.auth.uid, request.resource.data.b)
+        && request.resource.data.seed is int
+        && request.resource.data.state == 'invited'
+        && request.resource.data.aScore == 0 && request.resource.data.bScore == 0
+        && request.resource.data.aDone == false && request.resource.data.bDone == false
+        && request.resource.data.aName is string && request.resource.data.aName.size() <= 16
+        && request.resource.data.bName is string && request.resource.data.bName.size() <= 16
+        && request.resource.data.createdAt == request.time;
+      allow update: if inDuel(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+             request.auth.uid == resource.data.a ? ['state', 'aScore', 'aDone'] : ['state', 'bScore', 'bDone'])
+        && request.resource.data.state in ['invited', 'go', 'declined', 'cancelled', 'done']
+        && request.resource.data.aScore is int && request.resource.data.bScore is int;
+      allow delete: if false;
+
+      match /moves/{m} {
+        allow read: if inDuel(get(/databases/$(database)/documents/duels/$(id)).data);
+        allow create: if inDuel(get(/databases/$(database)/documents/duels/$(id)).data)
+          && request.resource.data.by == request.auth.uid
+          && request.resource.data.keys().hasOnly(['by', 'n', 't', 'x', 'y', 'vx', 'vy', 'p', 'px', 'py',
+                                                    'a', 'r', 'd', 'w', 'sc', 'c', 'at'])
+          && request.resource.data.t in ['S', 'L', 'C', 'V', 'T', 'D']
+          && request.resource.data.at == request.time;
+        allow update, delete: if false;
+      }
+    }
+
     // Admins are added by hand in the Firebase console (a document named after their user ID).
     match /admins/{uid} {
       allow read: if isOwner(uid);
