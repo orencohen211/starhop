@@ -95,6 +95,40 @@ service cloud.firestore {
       allow delete: if isOwner(uid) || isAdmin();
     }
 
+    // Friend requests: friendReqs/{to}_{from}. Only the two pilots involved can see
+    // or remove one (accept, decline, cancel); only the sender can create it.
+    match /friendReqs/{id} {
+      allow read, delete: if signedIn()
+        && (request.auth.uid == resource.data.to || request.auth.uid == resource.data.from);
+      allow create: if signedIn()
+        && !isBanned(request.auth.uid)
+        && request.resource.data.keys().hasOnly(['from', 'to', 'fromName', 'toName', 'at'])
+        && request.resource.data.from == request.auth.uid
+        && request.resource.data.to is string
+        && request.resource.data.to != request.auth.uid
+        && id == request.resource.data.to + '_' + request.auth.uid
+        && exists(/databases/$(database)/documents/leaderboard/$(request.resource.data.to))
+        && request.resource.data.fromName is string
+        && get(/databases/$(database)/documents/callsigns/$(request.resource.data.fromName.lower())).data.uid == request.auth.uid
+        && request.resource.data.toName is string && request.resource.data.toName.size() <= 16
+        && request.resource.data.at == request.time;
+    }
+
+    // Friendships: friendships/{a}_{b} with the two user IDs in sorted order.
+    // Created only by the pilot accepting a pending request; either friend can remove it.
+    match /friendships/{id} {
+      allow read, delete: if signedIn() && request.auth.uid in resource.data.users;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['users', 'at'])
+        && request.resource.data.users is list
+        && request.resource.data.users.size() == 2
+        && request.resource.data.users[0] < request.resource.data.users[1]
+        && id == request.resource.data.users[0] + '_' + request.resource.data.users[1]
+        && request.auth.uid in request.resource.data.users
+        && exists(/databases/$(database)/documents/friendReqs/$(request.auth.uid + '_' + (request.resource.data.users[0] == request.auth.uid ? request.resource.data.users[1] : request.resource.data.users[0])))
+        && request.resource.data.at == request.time;
+    }
+
     // Admins are added by hand in the Firebase console (a document named after their user ID).
     match /admins/{uid} {
       allow read: if isOwner(uid);

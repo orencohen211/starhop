@@ -170,6 +170,14 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
 .namebtn{background:none;border:none;color:inherit;font:inherit;text-align:left;padding:0;cursor:pointer;text-decoration:underline;text-decoration-color:rgba(143,151,201,.35);text-underline-offset:3px}
 .namebtn:hover{color:var(--orbit)}
 #profileCard{overflow-y:auto}
+.tabs.two{grid-template-columns:repeat(2,1fr)}
+.addfriend{display:flex;gap:8px}
+.addfriend input{flex:1;min-width:0;font:600 16px var(--display);letter-spacing:.04em;color:var(--ink);background:var(--void);border:1px solid rgba(143,151,201,.4);border-radius:10px;padding:10px 12px}
+.addfriend .play{font-size:14px;padding:10px 18px}
+.frow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border-radius:10px;background:rgba(143,151,201,.07);font-family:var(--display)}
+.frow .row{gap:6px}
+.frow .act,.frow .ghost{font-size:12px;padding:6px 12px}
+#friendsBody .ranks{margin:0}
 .sgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .stat{background:rgba(143,151,201,.07);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:2px;min-width:0}
 .stat span{font:600 10.5px var(--display);letter-spacing:.1em;color:var(--muted);text-transform:uppercase}
@@ -282,6 +290,17 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
 
   <div class="achtoast" id="achToast" role="status" aria-live="polite" hidden></div>
 
+  <div class="panel solid" id="friendsPanel" hidden>
+    <div class="card store">
+      <div class="storehead">
+        <div><span class="eyebrow">Your squadron</span><h2>Friends</h2></div>
+        <div class="bal" id="friendsCount"></div>
+      </div>
+      <div class="items" id="friendsBody"></div>
+      <button class="ghost" id="friendsBack" type="button" style="align-self:flex-start">BACK</button>
+    </div>
+  </div>
+
   <div class="panel solid" id="achPanel" hidden>
     <div class="card store">
       <div class="storehead">
@@ -337,6 +356,10 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
     <div class="card">
       <span class="eyebrow">Top pilots</span>
       <h2>Leaderboard</h2>
+      <div class="tabs two" role="tablist" id="rankTabs">
+        <button type="button" role="tab" data-m="all">EVERYONE</button>
+        <button type="button" role="tab" data-m="friends">FRIENDS</button>
+      </div>
       <ol class="ranks" id="ranksList"></ol>
       <p id="ranksNote"></p>
       <button class="ghost" id="ranksBack" type="button" style="align-self:flex-start">BACK</button>
@@ -641,6 +664,7 @@ function login(data, silent){
   F.getDoc(F.doc(db,'leaderboard',uid)).then(sn=>{ lastBoardBest = sn.exists() ? (+sn.data().best||0) : 0;
     if (!sn.exists()) F.setDoc(F.doc(db,'leaderboard',uid), {callsign, best:0, updatedAt:F.serverTimestamp()}).catch(()=>{}); }).catch(()=>{});
   checkAdmin();
+  startFriends();
   pilotSince = data.joined && data.joined.toDate ? dayKey(data.joined.toDate()) : (pilotSince || dayKey());
   saveProgress(true);
   setTimeout(()=>{ checkAch(); publishProfile(); }, 400);
@@ -655,6 +679,7 @@ function checkAdmin(){
   F.getDoc(F.doc(db,'admins',uid)).then(sn=>{ const was=isAdmin; isAdmin = sn.exists(); if (was!==isAdmin) renderRanks(); }).catch(()=>{});
 }
 function leavePilot(){
+  stopFriends();
   mode='guest'; callsign=''; isAdmin=false; runStartP=null;
   applyProgress(_store.guest);
   lastCloud=''; lastBoardBest=0; lastProfile=''; pilotSince='';
@@ -682,6 +707,8 @@ async function deleteAccount(){
     await F.deleteDoc(F.doc(db,'runs',uid)).catch(()=>{});
     await F.deleteDoc(F.doc(db,'callsigns',callsign.toLowerCase())).catch(()=>{});
     await F.deleteDoc(F.doc(db,'profiles',uid)).catch(()=>{});
+    for (const f of friendPairs) await F.deleteDoc(F.doc(db,'friendships',f.id)).catch(()=>{});
+    for (const r of [...incoming, ...outgoing]) await F.deleteDoc(F.doc(db,'friendReqs',r.id)).catch(()=>{});
     await F.deleteDoc(F.doc(db,'users',uid));
     const gone = callsign;
     _store.pilotCache = null; flush();
@@ -791,9 +818,23 @@ function watchRanks(){
     renderRanks();
   }, ()=>{ clearTimeout(timer); rankErr=true; renderRanks(); });
 }
+let rankMode = 'all';
 function renderRanks(){
   const list=$('ranksList'), note=$('ranksNote');
   list.textContent='';
+  for (const b of $('rankTabs').querySelectorAll('button')) b.setAttribute('aria-selected', String(b.dataset.m===rankMode));
+  if (rankMode==='friends'){
+    if (mode!=='pilot'){ note.textContent='Sign up or log in to compare scores with friends.'; return; }
+    if (!friendRows){ note.textContent='Loading friends…'; return; }
+    const rows = [...friendRows, {id:uid, callsign, best:lastBoardBest}].sort((a,b)=>b.best-a.best);
+    rows.forEach((r,i)=>{
+      const li=el('li', r.id===uid ? 'me' : null); li.append(el('span','pos',(i+1)+'.'));
+      li.append(btn('nm namebtn', r.callsign, ()=>openProfile(r.id, r.callsign, 'ranks')), el('span','sc',String(r.best)));
+      list.append(li);
+    });
+    note.textContent = friendRows.length ? '' : 'No friends yet. Tap a pilot’s name and choose ADD FRIEND, or use FRIENDS on the menu.';
+    return;
+  }
   if (acctState==='offline'){ note.textContent='The leaderboard can’t be reached right now.'; return; }
   if (!rankRows){ note.textContent = rankErr ? 'The leaderboard can’t be reached right now.' : 'Loading pilots…'; return; }
   if (!rankRows.length){ note.textContent='No pilots yet. Create one and set the first record.'; return; }
@@ -839,7 +880,7 @@ function renderAcct(){
   if (mode==='pilot'){
     const w=btn('who click','',()=>openAuth('account')); w.setAttribute('aria-label','Your account'); const d=el('span','dot',callsign.slice(0,1).toUpperCase()); d.style.background=myColor;
     w.append(d, el('span',null,callsign));
-    a.append(w, btn('ghost','LEADERBOARD',()=>showPanel('ranks')), btn('link','Account',()=>openAuth('account')));
+    a.append(w, btn('ghost','LEADERBOARD',()=>showPanel('ranks')), btn('ghost', incoming.length ? `FRIENDS · ${incoming.length} NEW` : 'FRIENDS', ()=>openFriends('menu')), btn('link','Account',()=>openAuth('account')));
   } else if (acctState==='noprofile'){
     a.append(el('span','who dim','Almost done: pick a callsign'), btn('ghost','FINISH SIGN-UP',()=>openAuth('callsign')), btn('link','Log out',logout));
   } else {
@@ -955,6 +996,7 @@ function showPanel(which){
   $('storePanel').hidden = true;
   $('statsPanel').hidden = true;
   $('achPanel').hidden = true;
+  $('friendsPanel').hidden = true;
   $('profilePanel').hidden = true;
   $('missionsPanel').hidden = which!=='missions';
   $('mResult').hidden = which!=='mresult';
@@ -962,9 +1004,11 @@ function showPanel(which){
   if (which==='missions') renderMissions();
   if (which==='auth') renderAuth();
   if (which==='ranks'){ renderRanks(); checkAdmin(); }
+  if (which==='friends'){ $('friendsPanel').hidden=false; renderFriends(); }
   if (which==='menu') { renderAcct(); refreshUI(); }
 }
 $('ranksBack').addEventListener('click',()=>showPanel(prevPanel));
+$('rankTabs').addEventListener('click', e=>{ const b=e.target.closest('button'); if (!b) return; rankMode=b.dataset.m; renderRanks(); });
 let prevPanel='menu';
 
 // ---------- audio ----------
@@ -1664,7 +1708,7 @@ function renderStats(){
 }
 function openStats(from){
   prevPanel = from;
-  for (const id of ['menu','over','auth','ranksPanel','missionsPanel','mResult','storePanel','achPanel','profilePanel']) $(id).hidden=true;
+  for (const id of ['menu','over','auth','ranksPanel','missionsPanel','mResult','storePanel','achPanel','profilePanel','friendsPanel']) $(id).hidden=true;
   $('statsPanel').hidden=false; renderStats(); $('statsBody').scrollTop = 0;
 }
 $('statsBtn').addEventListener('click', ()=>openStats('menu'));
@@ -1716,6 +1760,8 @@ const ACH = [
   ['c5','Collection','◇','Fully Upgraded','Max out every upgrade.',60, ()=>[Object.values(upg).reduce((a,b)=>a+b,0),Object.values(UPG_MAX).reduce((a,b)=>a+b,0)]],
   ['a1','Pilot','✓','Pilot Licence','Create a pilot account.',10, ()=>[mode==='pilot'?1:0,1]],
   ['a2','Pilot','✓','Graduate','Finish the tutorial.',5, ()=>[_store.tutDone?1:0,1]],
+  ['fr1','Pilot','✓','Wingmate','Make your first friend.',10, ()=>[friendPairs.length,1]],
+  ['fr2','Pilot','✓','Squadron','Have 5 friends.',30, ()=>[friendPairs.length,5]],
 ];
 const ACH_IDS = ACH.map(a=>a[0]);
 const achById = id => ACH.find(a=>a[0]===id);
@@ -1773,7 +1819,7 @@ function renderAch(){
 }
 function openAch(from){
   prevPanel = from;
-  for (const id of ['menu','over','auth','ranksPanel','missionsPanel','mResult','storePanel','statsPanel','profilePanel']) $(id).hidden=true;
+  for (const id of ['menu','over','auth','ranksPanel','missionsPanel','mResult','storePanel','statsPanel','profilePanel','friendsPanel']) $(id).hidden=true;
   $('achPanel').hidden=false; renderAch(); $('achBody').scrollTop = 0;
 }
 $('achBtn').addEventListener('click', ()=>openAch('menu'));
@@ -1797,7 +1843,7 @@ async function publishProfile(){
 function nameOf(list, id){ const x = list.find(t=>t.id===id); return x ? x.name.toLowerCase().replace(/\b\w/g, c=>c.toUpperCase()) : '—'; }
 async function openProfile(id, fallbackName, from){
   profFrom = from || 'menu';
-  for (const pid of ['menu','over','auth','ranksPanel','missionsPanel','mResult','storePanel','statsPanel','achPanel']) $(pid).hidden=true;
+  for (const pid of ['menu','over','auth','ranksPanel','missionsPanel','mResult','storePanel','statsPanel','achPanel','friendsPanel']) $(pid).hidden=true;
   $('profilePanel').hidden=false;
   const c = $('profileCard'); c.textContent='';
   c.append(el('span','eyebrow','Pilot profile'), el('h2',null, fallbackName || 'Loading…'), el('span','spin'));
@@ -1814,9 +1860,9 @@ async function openProfile(id, fallbackName, from){
     } catch(e){}
   }
   if (id === uid && mode==='pilot') prof = {...profileBody(), ...(prof||{}), ...profileBody()};   // your own: always current
-  renderProfile(prof, board, rank, fallbackName, id===uid && mode==='pilot');
+  renderProfile(prof, board, rank, fallbackName, id===uid && mode==='pilot', id);
 }
-function renderProfile(p, board, rank, fallbackName, mine){
+function renderProfile(p, board, rank, fallbackName, mine, pid){
   const c = $('profileCard'); c.textContent='';
   const name = String((p && p.callsign) || (board && board.callsign) || fallbackName || 'Pilot').slice(0,16);
   const head = el('div','phead');
@@ -1853,8 +1899,166 @@ function renderProfile(p, board, rank, fallbackName, mine){
   const row = el('div','row');
   row.append(btn('ghost','BACK',()=>showPanel(profFrom)));
   if (mine) row.append(btn('link','My achievements',()=>openAch('menu')));
+  if (!mine && mode==='pilot' && pid && board){
+    const st = friendStateWith(pid);
+    if (st==='friends') row.append(stateBtn('own','FRIENDS ✓'));
+    else if (st==='sent') row.append(stateBtn('own','REQUEST SENT'));
+    else if (st==='incoming') row.append(btn('play','ACCEPT FRIEND REQUEST',()=>{ acceptFriend(incoming.find(r=>r.from===pid)).then(()=>openProfile(pid, name, profFrom)); }));
+    else row.append(btn('play','ADD FRIEND',async(e)=>{ e.target.disabled=true; await addFriendById(pid, name); openProfile(pid, name, profFrom); }));
+  }
   c.append(row);
 }
+
+// ---------- friends ----------
+// friendReqs/{to}_{from}: a pending request. friendships/{a}_{b} (sorted ids): a confirmed pair.
+let incoming = [], outgoing = [], friendPairs = [], friendRows = null, friendUnsubs = [], friendMsg = '', friendMsgOk = false;
+const pairId = (a,b) => a < b ? `${a}_${b}` : `${b}_${a}`;
+const friendUids = () => friendPairs.map(f=>f.other);
+function stopFriends(){ friendUnsubs.forEach(u=>{ try{u();}catch(e){} }); friendUnsubs=[]; incoming=[]; outgoing=[]; friendPairs=[]; friendRows=null; }
+function startFriends(){
+  stopFriends();
+  if (mode!=='pilot' || !fb || !uid) return;
+  const {F, db} = fb, me = uid;
+  const live = () => { renderAcct(); if (!$('friendsPanel').hidden) renderFriends(); if (!$('ranksPanel').hidden && rankMode==='friends') renderRanks(); };
+  friendUnsubs.push(F.onSnapshot(F.query(F.collection(db,'friendReqs'), F.where('to','==',me)), sn=>{
+    incoming = sn.docs.map(d=>({id:d.id, ...d.data()})); live(); }, ()=>{}));
+  friendUnsubs.push(F.onSnapshot(F.query(F.collection(db,'friendReqs'), F.where('from','==',me)), sn=>{
+    outgoing = sn.docs.map(d=>({id:d.id, ...d.data()})); live(); }, ()=>{}));
+  friendUnsubs.push(F.onSnapshot(F.query(F.collection(db,'friendships'), F.where('users','array-contains',me)), sn=>{
+    friendPairs = sn.docs.map(d=>({id:d.id, other:(d.data().users||[]).find(u=>u!==me)})).filter(f=>f.other);
+    loadFriendRows().then(()=>{ live(); checkAch(); });
+  }, ()=>{}));
+}
+async function loadFriendRows(){
+  if (!fb) return;
+  const {F, db} = fb;
+  const rows = await Promise.all(friendUids().map(id => F.getDoc(F.doc(db,'leaderboard',id))
+    .then(s => s.exists() ? {id, callsign:String(s.data().callsign||'Pilot').slice(0,16), best:+s.data().best||0} : {id, callsign:'Pilot', best:0}, () => ({id, callsign:'Pilot', best:0}))));
+  friendRows = rows;
+}
+function friendStateWith(other){
+  if (friendUids().includes(other)) return 'friends';
+  if (incoming.some(r=>r.from===other)) return 'incoming';
+  if (outgoing.some(r=>r.to===other)) return 'sent';
+  return 'none';
+}
+function setFriendMsg(t, ok){ friendMsg = t; friendMsgOk = !!ok; }
+async function sendFriendRequest(name){
+  name = (name||'').trim();
+  if (mode!=='pilot'){ setFriendMsg('Sign up or log in to add friends.'); return renderFriends(); }
+  if (!NAME_RE.test(name)){ setFriendMsg('Callsigns are 3 to 16 letters, numbers, - or _.'); return renderFriends(); }
+  if (name.toLowerCase() === callsign.toLowerCase()){ setFriendMsg('That’s you! Try a friend’s callsign.'); return renderFriends(); }
+  const {F, db} = fb;
+  try {
+    const cs = await F.getDoc(F.doc(db,'callsigns',name.toLowerCase()));
+    if (!cs.exists()){ setFriendMsg(`No pilot is called ${name}. Check the spelling.`); return renderFriends(); }
+    const to = cs.data().uid;
+    await addFriendById(to, name);
+  } catch(e){ setFriendMsg('Couldn’t send the request. Check your connection and try again.'); renderFriends(); }
+}
+async function addFriendById(to, nameHint){
+  const {F, db} = fb;
+  const state = friendStateWith(to);
+  if (state==='friends'){ setFriendMsg(`You’re already friends with ${nameHint}.`, true); return renderFriends(); }
+  if (state==='sent'){ setFriendMsg(`You already sent ${nameHint} a request.`, true); return renderFriends(); }
+  if (state==='incoming'){ return acceptFriend(incoming.find(r=>r.from===to)); }
+  if (friendUids().length >= 100){ setFriendMsg('You’ve reached 100 friends, the maximum.'); return renderFriends(); }
+  let toName = nameHint;
+  try { const lb = await F.getDoc(F.doc(db,'leaderboard',to)); if (lb.exists()) toName = String(lb.data().callsign||nameHint).slice(0,16); } catch(e){}
+  try {
+    await F.setDoc(F.doc(db,'friendReqs',`${to}_${uid}`), {from:uid, to, fromName:callsign, toName, at:F.serverTimestamp()});
+    setFriendMsg(`Request sent to ${toName}. You’ll be friends once they accept.`, true);
+  } catch(e){ setFriendMsg(e && e.code==='permission-denied' ? `You already sent ${toName} a request.` : 'Couldn’t send the request. Try again.'); }
+  renderFriends();
+}
+async function acceptFriend(req){
+  if (!req) return;
+  const {F, db} = fb, b = F.writeBatch(db);
+  const users = [uid, req.from].sort();
+  b.set(F.doc(db,'friendships',pairId(uid, req.from)), {users, at:F.serverTimestamp()});
+  b.delete(F.doc(db,'friendReqs',req.id));
+  // if I had also sent them a request, tidy it up too
+  const mine = outgoing.find(r=>r.to===req.from); if (mine) b.delete(F.doc(db,'friendReqs',mine.id));
+  try { await b.commit(); setFriendMsg(`You and ${req.fromName||'your new friend'} are now friends!`, true); beep(880,0.15,'triangle',0.06,300); }
+  catch(e){ setFriendMsg('Couldn’t accept the request. Try again.'); }
+  renderFriends();
+}
+async function dropRequest(req, msg){
+  try { await fb.F.deleteDoc(fb.F.doc(fb.db,'friendReqs',req.id)); setFriendMsg(msg, true); } catch(e){ setFriendMsg('Couldn’t do that. Try again.'); }
+  renderFriends();
+}
+async function removeFriend(other, name){
+  try { await fb.F.deleteDoc(fb.F.doc(fb.db,'friendships',pairId(uid, other))); setFriendMsg(`${name} is no longer your friend.`, true); }
+  catch(e){ setFriendMsg('Couldn’t remove that friend. Try again.'); }
+  renderFriends();
+}
+function renderFriends(){
+  const box = $('friendsBody'); box.textContent='';
+  $('friendsCount').textContent = mode==='pilot' ? String(friendUids().length) : '';
+  if (mode!=='pilot'){
+    box.append(el('p','fine','Friends are for pilots with an account, so your friends list follows you to any device.'));
+    const r = el('div','row'); r.append(btn('play','SIGN UP',()=>openAuth('signup')), btn('ghost','LOG IN',()=>openAuth('login'))); box.append(r);
+    return;
+  }
+  // add a friend
+  box.append(el('div','sect','ADD A FRIEND'));
+  const form = el('form','addfriend'); form.noValidate = true;
+  const inp = el('input'); inp.id='friendName'; inp.placeholder='Their callsign'; inp.maxLength=16; inp.autocomplete='off'; inp.spellcheck=false;
+  inp.setAttribute('aria-label','Friend’s callsign');
+  const go = btn('play','ADD',null); go.type='submit';
+  form.append(inp, go);
+  form.addEventListener('submit', e=>{ e.preventDefault(); go.disabled=true; sendFriendRequest(inp.value); });
+  box.append(form);
+  if (friendMsg) box.append(el('p', friendMsgOk ? 'okmsg' : 'err', friendMsg));
+  box.append(el('p','fine', `Your callsign is ${callsign}. Share it so friends can add you.`));
+  // requests for me
+  if (incoming.length){
+    box.append(el('div','sect',`REQUESTS FOR YOU · ${incoming.length}`));
+    for (const r of incoming){
+      const row = el('div','frow');
+      const n = btn('nm namebtn', String(r.fromName||'Pilot').slice(0,16), ()=>openProfile(r.from, r.fromName, 'friends'));
+      const acts = el('div','row'); acts.append(btn('act buy','ACCEPT',()=>acceptFriend(r)), btn('ghost','DECLINE',()=>dropRequest(r, `Declined ${r.fromName||'the request'}.`)));
+      row.append(n, acts); box.append(row);
+    }
+  }
+  // friends, ranked
+  box.append(el('div','sect','YOUR FRIENDS'));
+  if (!friendRows){ box.append(el('p','fine','Loading…')); }
+  else if (!friendRows.length){ box.append(el('p','fine','No friends yet. Add one above, or open a pilot from the leaderboard and tap ADD FRIEND.')); }
+  else {
+    const rows = [...friendRows, {id:uid, callsign, best:lastBoardBest, me:true}].sort((a,b)=>b.best-a.best);
+    const ol = el('ol','ranks');
+    rows.forEach((r,i)=>{
+      const li = el('li', r.me ? 'me' : null);
+      li.append(el('span','pos',(i+1)+'.'));
+      const n = btn('nm namebtn', r.me ? `${r.callsign} (you)` : r.callsign, ()=>openProfile(r.id, r.callsign, 'friends')); li.append(n);
+      li.append(el('span','sc', String(r.best)));
+      if (!r.me){
+        const tools = el('span','mod');
+        const ask = () => { tools.textContent=''; tools.append(el('span','dim',`Remove ${r.callsign}?`), btn('link','Yes',()=>removeFriend(r.id, r.callsign)), btn('link','No',()=>renderFriends())); };
+        tools.append(btn('link','Remove friend',ask)); li.append(tools);
+      }
+      ol.append(li);
+    });
+    box.append(ol);
+  }
+  // sent
+  if (outgoing.length){
+    box.append(el('div','sect',`SENT · WAITING FOR AN ANSWER`));
+    for (const r of outgoing){
+      const row = el('div','frow');
+      row.append(btn('nm namebtn', String(r.toName||'Pilot').slice(0,16), ()=>openProfile(r.to, r.toName, 'friends')), btn('ghost','CANCEL',()=>dropRequest(r, `Cancelled your request to ${r.toName||'that pilot'}.`)));
+      box.append(row);
+    }
+  }
+}
+function openFriends(from){
+  friendsFrom = from || 'menu';
+  for (const id of ['menu','over','auth','ranksPanel','missionsPanel','mResult','storePanel','statsPanel','achPanel','profilePanel']) $(id).hidden=true;
+  $('friendsPanel').hidden=false; renderFriends();
+}
+let friendsFrom = 'menu';
+$('friendsBack').addEventListener('click', ()=>{ friendMsg=''; showPanel(friendsFrom); });
 
 // ---------- store ----------
 let storeTab='trails';
@@ -1925,7 +2129,7 @@ function renderStore(){
 }
 function openStore(from){
   prevPanel = from;
-  for (const id of ['menu','over','auth','ranksPanel','missionsPanel','mResult','statsPanel','achPanel','profilePanel']) $(id).hidden=true;
+  for (const id of ['menu','over','auth','ranksPanel','missionsPanel','mResult','statsPanel','achPanel','profilePanel','friendsPanel']) $(id).hidden=true;
   $('storePanel').hidden=false; renderStore();
 }
 $('storeTabs').addEventListener('click', e=>{ const b=e.target.closest('button'); if (!b) return; storeTab=b.dataset.tab; renderStore(); });
@@ -2001,7 +2205,7 @@ function startMission(m){
   curMission = m; reset(); state='play';
   runClock=0; life.mAttempts++;
   mTime=0; mStars=0; mSkips=0; mClose=false; runDouble=false; shieldReady=false;
-  for (const id of ['menu','over','auth','ranksPanel','storePanel','missionsPanel','mResult','statsPanel','achPanel','profilePanel']) $(id).hidden=true;
+  for (const id of ['menu','over','auth','ranksPanel','storePanel','missionsPanel','mResult','statsPanel','achPanel','profilePanel','friendsPanel']) $(id).hidden=true;
   $('hud').hidden=false; refreshUI(); updateHud(false);
 }
 function renderMissions(){
@@ -2064,7 +2268,7 @@ function start(){
   runDouble=false; if (doubles>0){ doubles--; runDouble=true; saveProgress(true); }
   shieldReady = shields>0;
   markRunStart();
-  for (const id of ['menu','over','auth','ranksPanel','storePanel','missionsPanel','mResult','statsPanel','achPanel','profilePanel']) $(id).hidden=true;
+  for (const id of ['menu','over','auth','ranksPanel','storePanel','missionsPanel','mResult','statsPanel','achPanel','profilePanel','friendsPanel']) $(id).hidden=true;
   $('hud').hidden=false; refreshUI(); updateHud(false);
 }
 function showOver(){
