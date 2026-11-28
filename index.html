@@ -1186,8 +1186,11 @@ function makePlanet(x,y,idx){
     ring: rnd()<.35, spin:rnd()*6, collapse:0, fragile: idx>0 && fragileOdds(idx)>0 && rnd() < fragileOdds(idx)};
 }
 function fragileOdds(idx){ return curMission ? (curMission.fragile||0) : (idx>10 ? 0.18 : 0); }
+function topPlanet(){ let t = planets[0]; for (const p of planets) if (p.idx > t.idx) t = p; return t; }
+// put a planet back into the list in its proper place (by its number)
+function restorePlanet(p){ p.broken = false; if (!planets.includes(p)){ planets.push(p); planets.sort((a,b)=>a.idx-b.idx); } }
 function addNextPlanet(){
-  const last = planets[planets.length-1];
+  const last = topPlanet();
   const hz = pickHazard(nextIdx);
   const gap = 165 + rnd()*70 + Math.min(40, nextIdx*1.2) + (hz ? 80 : 0);
   const p0 = makePlanet(0,0,nextIdx);
@@ -1338,7 +1341,7 @@ function tutLanded(){
 function tutMissed(){
   // in the tutorial a miss isn't the end: put the ship back in orbit
   const s = ship;
-  if (s.p.broken){ s.p.broken=false; if (!planets.includes(s.p)) planets.push(s.p); }
+  if (s.p.broken) restorePlanet(s.p);
   burst(s.x,s.y,'110,231,255',20,160);
   s.mode='orbit'; s.otime=0; s.oR=s.p.R+20; s.from=null; s.a=-Math.PI/2; s.p.collapse=0; s.vx=s.vy=0; placeOnOrbit();
   trail = []; camY = Math.min(camY, s.p.y - H*0.5);
@@ -1351,7 +1354,7 @@ function reset(){
   planets=[]; stars=[]; parts=[]; trail=[]; pops=[]; fx=[]; flash=0; score=0; maxIdx=0; runStars=0; nextIdx=1; shake=0;
   const p = makePlanet(W/2, 0, 0); p.vx=0; if (!(curMission && curMission.collapse)) p.w=1.9; planets.push(p);
   camY = p.y - H*0.68;
-  while (planets[planets.length-1].y > camY - H) addNextPlanet();
+  while (topPlanet().y > camY - H) addNextPlanet();
   ship = {mode:'orbit', p, a:-Math.PI/2, oR:p.R, x:0,y:0,vx:0,vy:0, ft:0, otime:0, from:null};
   placeOnOrbit();
 }
@@ -1365,7 +1368,7 @@ function rescue(){
   life.shieldSaves++;
   const s = ship;
   burst(s.x,s.y,'110,231,255',30,200);
-  if (s.p.broken){ s.p.broken=false; if (!planets.includes(s.p)) planets.push(s.p); }
+  if (s.p.broken) restorePlanet(s.p);
   s.mode='orbit'; s.otime=0; s.oR=s.p.R+24; s.from=null; s.a=-Math.PI/2; s.p.collapse=0; placeOnOrbit();
   pops.push({x:s.x, y:s.y-20, t:0, text:'SHIELD SAVED YOU'});
   beep(440,0.3,'triangle',0.07,440);
@@ -1613,9 +1616,10 @@ function update(dt){
     }
   }
   pushTrail();
-  const target = (s.mode==='orbit'? s.p.y : Math.min(s.y, s.from? s.from.y: s.y)) - H*0.68;
+  // never scroll below the planet you last left, so a ship falling downward drops off the screen
+  const target = (s.mode==='orbit'? s.p.y : Math.min(s.y, s.p.y)) - H*0.68;
   camY += (target - camY)*Math.min(1, dt*3);
-  while (planets[planets.length-1].y > camY - H*1.2) addNextPlanet();
+  while (topPlanet().y > camY - H*1.2) addNextPlanet();
   planets = planets.filter(p => !p.broken && (duel || p===s.p || p.y - camY < H + 260));
   if (!duel) hazards = hazards.filter(h => (h.type==='worm' ? h.oy : h.y) - camY < H + 300);
   stars = stars.filter(st => st.y - camY < H + 100);
@@ -2615,7 +2619,7 @@ function duelStep(dt){
   if (!duel || !opp) return;
   if (state==='play'){ duelTick += dt; if (duelTick >= 2){ duelTick = 0; duelSend({t:'T', sc:score, x:r1(ship.x), y:r1(ship.y)}); } }
   if (opp.alive){
-    while (planets.length && planets[planets.length-1].idx < opp.pIdx+2) addNextPlanet();
+    while (planets.length && topPlanet().idx < opp.pIdx+2) addNextPlanet();
     if (opp.mode==='orbit'){
       const p = oppPlanet(); const cx = p ? p.x : opp.px, cy = p ? p.y : opp.py;
       opp.a += opp.d*opp.w*dt; opp.x = cx + Math.cos(opp.a)*opp.r; opp.y = cy + Math.sin(opp.a)*opp.r;
