@@ -108,7 +108,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
 .callsign{font-family:var(--display);font-size:30px;font-weight:700;letter-spacing:.06em;color:var(--orbit);margin:0}
 .ranks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;font-family:var(--display);font-variant-numeric:tabular-nums}
 .ranks li{display:grid;grid-template-columns:24px 30px minmax(0,1fr) auto;gap:8px;align-items:center;padding:7px 10px;border-radius:8px;background:rgba(143,151,201,.07)}
-.ava{border-radius:50%;display:block;flex:none}
+.ava{display:block;flex:none}
 .ranks .nm{min-width:0}
 .ranks li.me{background:rgba(110,231,255,.14);color:var(--orbit)}
 .ranks .pos{color:var(--muted)}
@@ -165,7 +165,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
 .achdone{font:700 13px var(--display);color:var(--flare);white-space:nowrap}
 .phead{display:flex;gap:14px;align-items:center}
 .phead h2{margin:2px 0}
-.avatar{width:72px;height:72px;border-radius:50%;flex:none;border:2px solid rgba(110,231,255,.5)}
+.avatar{width:72px;height:72px;flex:none;}
 .badgewall{display:flex;flex-wrap:wrap;gap:8px}
 .badge{display:flex;align-items:center;gap:8px;background:rgba(143,151,201,.08);border-radius:999px;padding:4px 12px 4px 4px;font:600 12px var(--display);letter-spacing:.03em}
 .badge .emb{width:26px;height:26px;font-size:13px;border-width:1px}
@@ -2014,16 +2014,21 @@ function paintAvatar(c, p){
   const x = c.getContext('2d'), S = c.width;
   x.setTransform(S/128,0,0,S/128,0,0); x.clearRect(0,0,128,128);
   const trail = TRAILS.find(t=>t.id===p.trail) || TRAILS[0], th = THEMES.find(t=>t.id===p.theme) || THEMES[0];
-  x.save(); x.beginPath(); x.arc(64,64,64,0,Math.PI*2); x.clip();
+  // the picture sits in a circle a little smaller than the canvas, so the frame and medals fit inside it
+  const CX = 64, CY = 58, CR = 50;
+  x.save(); x.translate(CX-CR, CY-CR); x.scale(CR/64, CR/64);
+  x.beginPath(); x.arc(64,64,64,0,Math.PI*2); x.clip();
   const g = x.createRadialGradient(64,64,10,64,64,64); g.addColorStop(0, th.bg[0]); g.addColorStop(1, th.bg[1]);
   x.fillStyle = g; x.fillRect(0,0,128,128);
   for (let i=0;i<14;i++){ const a=i/14; x.strokeStyle=`rgba(${trail.col(a)},${a})`; x.lineWidth=2+a*8; x.lineCap='round';
     x.beginPath(); x.moveTo(14+a*40, 92-a*30); x.lineTo(14+(a+1/14)*40, 92-(a+1/14)*30); x.stroke(); }
   x.translate(66,54); x.rotate(-0.6); x.scale(3.2,3.2); drawShip(x, p.ship || 'dart', 1.2);
   x.restore();
+  x.strokeStyle = 'rgba(110,231,255,.6)'; x.lineWidth = 4; x.beginPath(); x.arc(CX, CY, CR, 0, Math.PI*2); x.stroke();   // frame
+  // medals sit on top of the frame at its bottom corners, never cut off
   const show = (p.show || []).map(achById).filter(Boolean).slice(0,2);
   show.forEach((a, i) => {
-    const rk = BADGE_RANKS[badgeRank(a)], cx = i===0 ? 26 : 102, cy = 104, r = 21;
+    const rk = BADGE_RANKS[badgeRank(a)], cx = i===0 ? 24 : 104, cy = 104, r = 19;
     const mg = x.createRadialGradient(cx-6, cy-7, 3, cx, cy, r); mg.addColorStop(0, rk.grad[0]); mg.addColorStop(0.5, rk.grad[1]); mg.addColorStop(1, rk.grad[2]);
     x.fillStyle = '#0b0d1f'; x.beginPath(); x.arc(cx, cy, r+3, 0, Math.PI*2); x.fill();
     x.fillStyle = mg; x.beginPath(); x.arc(cx, cy, r, 0, Math.PI*2); x.fill();
