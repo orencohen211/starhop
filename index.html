@@ -279,8 +279,6 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
       <div>★ <b id="hStars">0</b></div>
       <div class="buffs" id="hBuffs"></div>
       <button class="mute" id="pauseBtn" type="button" aria-label="Pause">❚❚ PAUSE</button>
-      <button class="mute" id="mute1" type="button">SOUND ON</button>
-      <button class="mute" id="music1" type="button">MUSIC ON</button>
     </div>
   </div>
 
@@ -301,7 +299,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
       <button class="ghost storebtn" id="storeBtn1" type="button">★ STORE</button>
     </div>
     <p class="how">Tap, click or <kbd>Space</kbd> to leave orbit.<br>Skip a planet for bonus points. Every landing earns ★, and so does every ★ you catch. Spend them on trails.</p>
-    <p class="foot"><button class="link" id="howBtn" type="button">Play the tutorial</button> · <button class="link" id="musicFoot" type="button">Music: on</button> · <a class="link" href="privacy.html" target="_blank" rel="noopener">Privacy</a></p>
+    <p class="foot"><button class="link" id="howBtn" type="button">Play the tutorial</button> · <button class="link" id="musicFoot" type="button">Music: on</button> · <button class="link" id="soundFoot" type="button">Sound: on</button> · <a class="link" href="privacy.html" target="_blank" rel="noopener">Privacy</a></p>
   </div>
 
   <div class="panel" id="over" hidden>
@@ -1620,9 +1618,11 @@ function update(dt){
   const target = (s.mode==='orbit'? s.p.y : Math.min(s.y, s.p.y)) - H*0.68;
   camY += (target - camY)*Math.min(1, dt*3);
   while (topPlanet().y > camY - H*1.2) addNextPlanet();
-  planets = planets.filter(p => !p.broken && (duel || p===s.p || p.y - camY < H + 260));
-  if (!duel) hazards = hazards.filter(h => (h.type==='worm' ? h.oy : h.y) - camY < H + 300);
-  stars = stars.filter(st => st.y - camY < H + 100);
+  // only forget things below where the screen would be if a shield sent you back to the planet you left
+  const keepY = Math.max(camY, s.p.y - H*0.68);
+  planets = planets.filter(p => !p.broken && (duel || p===s.p || p.idx > s.p.idx || p.y - keepY < H + 260));
+  if (!duel) hazards = hazards.filter(h => (h.type==='worm' ? h.oy : h.y) - keepY < H + 300);
+  stars = stars.filter(st => st.y - keepY < H + 100);
 }
 function updateHud(pulse){
   $('hBest').textContent=best; $('hStars').textContent=bank;
@@ -2800,7 +2800,6 @@ $('pauseBtn').addEventListener('click', e=>{ e.stopPropagation(); pauseGame(); }
 $('resumeBtn').addEventListener('click', resumeGame);
 $('restartBtn').addEventListener('click', restartRun);
 $('quitBtn').addEventListener('click', quitRun);
-$('music1').addEventListener('click', e=>{ e.stopPropagation(); setMusic(!musicOn); });
 $('musicFoot').addEventListener('click', ()=>setMusic(!musicOn));
 document.addEventListener('visibilitychange', () => { if (document.visibilityState==='hidden' && canPause()) pauseGame(); });
 
@@ -3007,9 +3006,9 @@ function refreshUI(){
   $('mBest').textContent=best; $('mStars').textContent=bank; $('mGames').textContent=games;
   $('oBest').textContent=best; $('oStars').textContent=bank; $('oRunStars').textContent=runStars;
   $('hBest').textContent=best; $('hStars').textContent=bank; $('score').textContent=score;
-  $('mute1').textContent = muted ? 'SOUND OFF' : 'SOUND ON';
+  $('soundFoot').textContent = muted ? 'Sound: off' : 'Sound: on';
   $('pSound').textContent = muted ? 'SOUND OFF' : 'SOUND ON';
-  $('music1').textContent = $('pMusic').textContent = musicOn ? 'MUSIC ON' : 'MUSIC OFF';
+  $('pMusic').textContent = musicOn ? 'MUSIC ON' : 'MUSIC OFF';
   $('musicFoot').textContent = musicOn ? 'Music: on' : 'Music: off';
   $('storeBtn1').textContent = $('storeBtn2').textContent = `★ ${bank} · STORE`;
 }
@@ -3154,7 +3153,7 @@ $('againBtn').addEventListener('click', start);
 $('overMenu').addEventListener('click', ()=>showPanel('menu'));
 $('overRanks').addEventListener('click', ()=>{ prevPanel='over'; $('over').hidden=true; $('ranksPanel').hidden=false; renderRanks(); checkAdmin(); });
 $('acct').addEventListener('click', ()=>{ prevPanel='menu'; }, true);
-$('mute1').addEventListener('click', e=>{ e.stopPropagation(); muted=!muted; saveProgress(false); refreshUI(); });
+$('soundFoot').addEventListener('click', ()=>{ muted=!muted; saveProgress(false); refreshUI(); });
 $('pSound').addEventListener('click', ()=>{ muted=!muted; saveProgress(false); refreshUI(); });
 $('pMusic').addEventListener('click', ()=>setMusic(!musicOn));
 cv.addEventListener('pointerdown', e=>{ e.preventDefault(); launch(); });
