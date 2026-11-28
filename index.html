@@ -1813,7 +1813,7 @@ function renderStats(){
       ['Most common ending', worst, null, null, true],
     ]],
     ['1V1 DUELS', [
-      ['Ranked rating', myRating ? `${tierOf(myRating.rating).name} · ${myRating.rating}` : 'Unranked', myRating ? `${myRating.wins}W ${myRating.losses}L ${myRating.draws}D ranked` : 'win a duel to get ranked', 'gold', true],
+      ['Ranked rating', myRating ? `${tierOf(myRating.rating).name} · ${myRating.rating}` : 'Unranked', myRating ? `${myRating.wins}W ${myRating.draws}D ${myRating.losses}L ranked` : 'win a duel to get ranked', 'gold', true],
       ['Duels played', fmtNum(L.duels)], ['Wins', fmtNum(L.duelWins), null, 'gold'],
       ['Losses', fmtNum(L.duelLosses)], ['Draws', fmtNum(L.duelDraws)],
       ['Win rate', L.duels ? Math.round(L.duelWins/L.duels*100)+'%' : '—'], ['Best duel score', L.duels ? fmtNum(L.duelBest) : '—'],
@@ -2844,10 +2844,10 @@ function renderHistory(rows, deltas){
   const head = el('div','sgrid');
   const tile = (label, value, node) => { const t = el('div','stat'); t.append(el('span',null,label)); if (node) t.append(node); else t.append(el('strong',null,value)); head.append(t); };
   tile('Ranked', null, myRating ? tierChip(myRating.rating) : el('strong',null,'Unranked'));
-  tile('Record', `${W} – ${L} – ${D}`);
+  tile('Record', `${W} – ${D} – ${L}`);
   tile('Duels finished', String(done.length));
   tile('Win rate', done.length ? Math.round(W/done.length*100)+'%' : '—');
-  box.append(head, el('p','fine','Record is wins – losses – draws. A win gains 12 to 30 rating and a loss costs 12 to 30: the bigger the margin, the more points. A draw changes nothing.'));
+  box.append(head, el('p','fine','Record is wins – draws – losses. A win gains 12 to 30 rating and a loss costs 12 to 30: the bigger the margin, the more points. A draw changes nothing.'));
   if (!rows.length){ box.append(el('p','fine','No duels yet. Challenge a friend from the Friends screen!')); return; }
   // head to head
   const byOpp = {};
@@ -2857,7 +2857,7 @@ function renderHistory(rows, deltas){
     box.append(el('div','sect','HEAD TO HEAD'));
     for (const o of h2h){
       const row = el('div','frow');
-      row.append(btn('nm namebtn', String(o.name||'Pilot').slice(0,16), ()=>openProfile(o.uid, o.name, 'history')), el('span','h2h', `${o.w} – ${o.l} – ${o.d}`));
+      row.append(btn('nm namebtn', String(o.name||'Pilot').slice(0,16), ()=>openProfile(o.uid, o.name, 'history')), el('span','h2h', `${o.w} – ${o.d} – ${o.l}`));
       box.append(row);
     }
   }
