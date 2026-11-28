@@ -80,7 +80,9 @@ service cloud.firestore {
       allow create, update: if isOwner(uid)
         && !isBanned(uid)
         && request.resource.data.keys().hasOnly(['callsign', 'flights', 'missions', 'mStars', 'badges',
-                                                  'ship', 'trail', 'theme', 'since', 'updatedAt'])
+                                                  'ship', 'trail', 'theme', 'since', 'show', 'updatedAt'])
+        && (!('show' in request.resource.data)
+            || (request.resource.data.show is list && request.resource.data.show.size() <= 2))
         && request.resource.data.callsign is string
         && get(/databases/$(database)/documents/callsigns/$(request.resource.data.callsign.lower())).data.uid == request.auth.uid
         && request.resource.data.flights is int && request.resource.data.flights >= 0

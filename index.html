@@ -107,7 +107,9 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
 .card .play{font-size:16px;padding:12px 26px;align-self:flex-start}
 .callsign{font-family:var(--display);font-size:30px;font-weight:700;letter-spacing:.06em;color:var(--orbit);margin:0}
 .ranks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;font-family:var(--display);font-variant-numeric:tabular-nums}
-.ranks li{display:grid;grid-template-columns:28px 1fr auto;gap:8px;align-items:center;padding:7px 10px;border-radius:8px;background:rgba(143,151,201,.07)}
+.ranks li{display:grid;grid-template-columns:24px 30px minmax(0,1fr) auto;gap:8px;align-items:center;padding:7px 10px;border-radius:8px;background:rgba(143,151,201,.07)}
+.ava{border-radius:50%;display:block;flex:none}
+.ranks .nm{min-width:0}
 .ranks li.me{background:rgba(110,231,255,.14);color:var(--orbit)}
 .ranks .pos{color:var(--muted)}
 .ranks .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
@@ -213,6 +215,16 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--flare);outline-
 .hdelta{font:600 12px var(--display);color:var(--muted);font-variant-numeric:tabular-nums}
 .h2h{font:700 15px var(--display);font-variant-numeric:tabular-nums}
 #pausePanel .card{align-items:stretch}
+.emb.sm{width:26px;height:26px;font-size:13px;border-width:1px}
+.rtag{font:700 9.5px var(--display);letter-spacing:.12em;vertical-align:middle;margin-left:4px}
+.achright{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.eqbtn{font-size:11px !important;padding:5px 10px !important}
+.act.own.eqbtn{cursor:pointer;box-shadow:inset 0 0 0 1px rgba(143,151,201,.45);color:var(--ink)}
+.achtop{display:flex;gap:12px;align-items:center;padding:6px 2px}
+.achtopc{display:flex;flex-direction:column;gap:6px;min-width:0}
+.rankrow{display:flex;flex-wrap:wrap;gap:6px}
+.rchip{font:700 11px var(--display);letter-spacing:.06em;border:1px solid;border-radius:999px;padding:2px 8px}
+.badge.showing{box-shadow:inset 0 0 0 1px var(--orbit)}
 .sgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .stat{background:rgba(143,151,201,.07);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:2px;min-width:0}
 .stat span{font:600 10.5px var(--display);letter-spacing:.1em;color:var(--muted);text-transform:uppercase}
@@ -525,7 +537,7 @@ const LIFE_KEYS = ['flights','points','time','longest','jumps','landings','skips
   'starsEarned','starsSpent','starsCaught','wormholes','bounces','glass','shieldSaves',
   'dCollapse','dLost','dCrash','dBlackHole','dAsteroid','dTime','mAttempts',
   'duels','duelWins','duelLosses','duelDraws','duelBest','duelPoints','duelStreak','duelBestStreak'];
-let life = {}, runClock = 0, achs = [];
+let life = {}, runClock = 0, achs = [], showBadges = [];
 function cleanLife(o){
   o = o || {}; const l = {};
   for (const k of LIFE_KEYS) l[k] = Math.max(0, +o[k] || 0);
@@ -563,12 +575,13 @@ function cleanProgress(o){
     themes:th, theme:te, rates:rt,
     launches:fxList(o.launches, LAUNCH_FX), launch:fxPick(o.launch, o.launches, LAUNCH_FX),
     lands:fxList(o.lands, LAND_FX), land:fxPick(o.land, o.lands, LAND_FX), life:cleanLife(o.life),
-    achs:[...new Set((Array.isArray(o.achs) ? o.achs : []).filter(x=>typeof x==='string' && /^[a-z0-9]{1,4}$/.test(x)))]};
+    achs:[...new Set((Array.isArray(o.achs) ? o.achs : []).filter(x=>typeof x==='string' && /^[a-z0-9]{1,4}$/.test(x)))],
+    show:[...new Set((Array.isArray(o.show) ? o.show : []).filter(x=>typeof x==='string' && /^[a-z0-9]{1,4}$/.test(x)))].slice(0,2)};
 }
 function applyProgress(o){
   const p = cleanProgress(o);
   best=p.best; bank=p.stars; games=p.games; owned=p.owned; equipped=p.trail;
-  ships=p.ships; shipEq=p.ship; upg=p.upg; shields=p.shields; doubles=p.doubles; missionsDone=p.missions; life=p.life; achs=p.achs;
+  ships=p.ships; shipEq=p.ship; upg=p.upg; shields=p.shields; doubles=p.doubles; missionsDone=p.missions; life=p.life; achs=p.achs; showBadges=p.show;
   themes=p.themes; themeEq=p.theme; rates=p.rates; applyTheme();
   launches=p.launches; launchEq=p.launch; lands=p.lands; landEq=p.land;
 }
@@ -576,7 +589,7 @@ function currentProgress(){ return {best, stars:bank, games, owned:owned.slice()
   ships:ships.slice(), ship:shipEq, upg:{...upg}, shields, doubles, missions:missionsDone.slice(),
   themes:themes.slice(), theme:themeEq, rates:{...rates},
   launches:launches.slice(), launch:launchEq, lands:lands.slice(), land:landEq,
-  life:{...life, recent:(life.recent||[]).slice()}, achs:achs.slice()}; }
+  life:{...life, recent:(life.recent||[]).slice()}, achs:achs.slice(), show:showBadges.slice()}; }
 // guest progress (migrates the first version's keys)
 const guestStart = _store.guest || {best:_store.starhopBest, stars:_store.starhopStars, games:_store.starhopGames, owned:_store.starhopOwned, trail:_store.starhopTrail};
 applyProgress(guestStart);
@@ -898,7 +911,7 @@ function renderRanks(){
     if (!rankedRows){ note.textContent = rankedErr ? 'The ranked board can’t be reached right now.' : 'Loading ranked pilots…'; rankedErr = false; return; }
     rankedRows.forEach((r,i)=>{
       const li=el('li', r.id===uid && mode==='pilot' ? 'me' : null);
-      li.append(el('span','pos',(i+1)+'.'), btn('nm namebtn', String(r.callsign||'Pilot').slice(0,16), ()=>openProfile(r.id, r.callsign, 'ranks')));
+      li.append(el('span','pos',(i+1)+'.'), avatarEl(r.id, 30), btn('nm namebtn', String(r.callsign||'Pilot').slice(0,16), ()=>openProfile(r.id, r.callsign, 'ranks')));
       const sc=el('span','sc'); sc.append(tierChip(Math.max(0,+r.rating||0))); li.append(sc);
       if (isAdmin && r.id!==uid){
         const tools=el('span','mod');
@@ -918,7 +931,7 @@ function renderRanks(){
     if (!friendRows){ note.textContent='Loading friends…'; return; }
     const rows = [...friendRows, {id:uid, callsign, best:lastBoardBest}].sort((a,b)=>b.best-a.best);
     rows.forEach((r,i)=>{
-      const li=el('li', r.id===uid ? 'me' : null); li.append(el('span','pos',(i+1)+'.'));
+      const li=el('li', r.id===uid ? 'me' : null); li.append(el('span','pos',(i+1)+'.'), avatarEl(r.id, 30));
       li.append(btn('nm namebtn', r.callsign, ()=>openProfile(r.id, r.callsign, 'ranks')), el('span','sc',String(r.best)));
       list.append(li);
     });
@@ -934,7 +947,7 @@ function renderRanks(){
     const b=document.createElement('button'); b.type='button'; b.className='nm namebtn'; b.textContent=String(r.callsign||'Pilot').slice(0,16);
     b.title='View pilot profile'; b.addEventListener('click',()=>openProfile(r.id, b.textContent, 'ranks'));
     const c=document.createElement('span'); c.className='sc'; c.textContent=Math.max(0,+r.best||0);
-    li.append(a,b,c);
+    li.append(a, avatarEl(r.id, 30), b, c);
     if (isAdmin && r.id!==uid){
       const tools=el('span','mod');
       tools.append(btn('link','Remove',()=>modRow(r,false,tools)), btn('link','Ban',()=>modRow(r,true,tools)));
@@ -968,7 +981,7 @@ function renderAcct(){
   if (acctState==='loading'){ const w=el('div','who'); w.append(el('span','spin'), el('span','dim','Connecting…')); a.append(w); return; }
   if (acctState==='offline'){ a.append(el('span','who dim','Accounts are offline. Progress saves in this browser.')); return; }
   if (mode==='pilot'){
-    const w=btn('who click','',()=>openAuth('account')); w.setAttribute('aria-label','Your account'); const d=el('span','dot',callsign.slice(0,1).toUpperCase()); d.style.background=myColor;
+    const w=btn('who click','',()=>openAuth('account')); w.setAttribute('aria-label','Your account'); const d=avatarEl(uid, 30);
     w.append(d, el('span',null,callsign));
     a.append(w, btn('ghost','LEADERBOARD',()=>showPanel('ranks')), btn('ghost', incoming.length ? `FRIENDS · ${incoming.length} NEW` : 'FRIENDS', ()=>openFriends('menu')), btn('link','Account',()=>openAuth('account')));
   } else if (acctState==='noprofile'){
@@ -1909,8 +1922,8 @@ function nextAchToast(){
   const t = $('achToast'), a = achQueue.shift();
   if (!a){ t.hidden = true; achTimer = null; return; }
   t.textContent = '';
-  const g = el('span','emb',a[2]), tx = el('div');
-  tx.append(el('b',null,'Achievement unlocked'), el('span',null,`${a[3]}  ·  +★${a[5]}`));
+  const g = medalEl(a, true), tx = el('div');
+  tx.append(el('b',null,`${BADGE_RANKS[badgeRank(a)].name} achievement unlocked`), el('span',null,`${a[3]}  ·  +★${a[5]}`));
   t.append(g, tx); t.hidden = false;
   achTimer = setTimeout(nextAchToast, 2800);
 }
@@ -1925,6 +1938,17 @@ function renderAch(){
   }
   const earned = ACH.filter(a=>achs.includes(a[0])).reduce((t,a)=>t+a[5],0), left = ACH.reduce((t,a)=>t+a[5],0) - earned;
   $('achSummary').textContent = `You’ve earned ★${fmtNum(earned)} from achievements. ★${fmtNum(left)} still to earn.`;
+  const top = el('div','achtop');
+  top.append(avatarEl(mode==='pilot' ? uid : null, 56, myAvatarData()));
+  const tc = el('div','achtopc');
+  const ranks = el('div','rankrow');
+  BADGE_RANKS.forEach((rk, i) => {
+    const have = ACH.filter(a => badgeRank(a)===i && achs.includes(a[0])).length, all = ACH.filter(a => badgeRank(a)===i).length;
+    const chip = el('span','rchip', `${rk.name} ${have}/${all}`); chip.style.color = rk.ring; chip.style.borderColor = rk.ring+'88'; ranks.append(chip);
+  });
+  const eq = shownBadges().map(id => achById(id)[3]);
+  tc.append(ranks, el('span','fine', eq.length ? `Showing on your profile picture: ${eq.join(' and ')}.` : 'Equip up to 2 badges to show them on your profile picture.'));
+  top.append(tc); box.append(top);
   const list = ACH.filter(a => achFilter==='all' || (achFilter==='done') === achs.includes(a[0]));
   if (!list.length) box.append(el('p','fine', achFilter==='done' ? 'Nothing yet. Finish your first flight to earn your first badge.' : 'You’ve done them all. Legendary pilot!'));
   let cat = '';
@@ -1933,13 +1957,19 @@ function renderAch(){
     const done = achs.includes(a[0]);
     const [cur, target] = a[6]();
     const r = el('div','item ach'+(done?' on':' locked-ach'));
-    const pv = el('div','pv'); pv.append(el('span','emb'+(done?' got':''), a[2]));
-    const tx = el('div','txt'); tx.append(el('span','nm',a[3]), el('span','ds',a[4]));
+    const rk = BADGE_RANKS[badgeRank(a)];
+    const pv = el('div','pv'); pv.append(medalEl(a, done));
+    const tag = el('span','rtag', rk.name.toUpperCase()); tag.style.color = rk.ring;
+    const nm = el('span','nm',a[3]); nm.append(' ', tag);
+    const tx = el('div','txt'); tx.append(nm, el('span','ds',a[4]));
     if (!done && target > 1){
       const bar = el('div','pbar'); const fill = el('i'); fill.style.width = Math.min(100, cur/target*100)+'%'; bar.append(fill);
       tx.append(bar, el('span','ds', `${fmtNum(Math.min(cur,target))} / ${fmtNum(target)}`));
     }
-    const right = el('span', done ? 'achdone' : 'achrew', done ? '✓ ★'+a[5] : '★'+a[5]);
+    const right = el('div','achright');
+    right.append(el('span', done ? 'achdone' : 'achrew', done ? '✓ ★'+a[5] : '★'+a[5]));
+    if (done){ const on = shownBadges().includes(a[0]);
+      right.append(btn('act '+(on?'pick':'own')+' eqbtn', on ? 'EQUIPPED' : 'EQUIP', ()=>toggleShow(a[0]))); }
     r.append(pv, tx, right); box.append(r);
   }
 }
@@ -1953,11 +1983,72 @@ $('overAch').addEventListener('click', ()=>openAch('over'));
 $('achTabs').addEventListener('click', e=>{ const b=e.target.closest('button'); if (!b) return; achFilter=b.dataset.f; renderAch(); $('achBody').scrollTop=0; });
 $('achBack').addEventListener('click', ()=>showPanel(prevPanel));
 
+// ---------- badge ranks + avatars ----------
+// Each badge's medal rank comes from its difficulty (its star reward).
+const BADGE_RANKS = [
+  {key:'bronze',   name:'Bronze',   grad:['#f7d2ad','#cd7f32','#7a4416'], ink:'#3b1d05', ring:'#cd7f32'},
+  {key:'silver',   name:'Silver',   grad:['#ffffff','#c7cee0','#6d7690'], ink:'#20263a', ring:'#c7cee0'},
+  {key:'gold',     name:'Gold',     grad:['#fff1b8','#ffcf5a','#b8860b'], ink:'#3a2600', ring:'#ffcf5a'},
+  {key:'platinum', name:'Platinum', grad:['#f4fdff','#a8e6f5','#3f8aa6'], ink:'#062633', ring:'#a8e6f5'},
+];
+function badgeRank(a){ const r = a[5]; return r >= 100 ? 3 : r >= 40 ? 2 : r >= 15 ? 1 : 0; }
+function medalEl(a, got, small){
+  const rk = BADGE_RANKS[badgeRank(a)];
+  const m = el('span', 'emb' + (got ? ' got' : '') + (small ? ' sm' : ''), a[2]);
+  if (got){ m.style.background = `radial-gradient(circle at 35% 30%, ${rk.grad[0]}, ${rk.grad[1]} 48%, ${rk.grad[2]})`; m.style.color = rk.ink; m.style.borderColor = rk.grad[0]; }
+  else m.style.borderColor = rk.ring + '66';
+  m.title = `${rk.name} badge`;
+  return m;
+}
+const shownBadges = () => showBadges.filter(id => achs.includes(id) && achById(id)).slice(0,2);
+function toggleShow(id){
+  if (!achs.includes(id)) return;
+  if (showBadges.includes(id)) showBadges = showBadges.filter(x=>x!==id);
+  else showBadges = [...showBadges.filter(x=>achs.includes(x)), id].slice(-2);
+  saveProgress(true); renderAch(); renderAcct();
+}
+// avatar: theme backdrop, trail streak, ship, and up to two equipped medals
+const avatarCache = {}, avatarWait = {};
+function paintAvatar(c, p){
+  p = p || {};
+  const x = c.getContext('2d'), S = c.width;
+  x.setTransform(S/128,0,0,S/128,0,0); x.clearRect(0,0,128,128);
+  const trail = TRAILS.find(t=>t.id===p.trail) || TRAILS[0], th = THEMES.find(t=>t.id===p.theme) || THEMES[0];
+  x.save(); x.beginPath(); x.arc(64,64,64,0,Math.PI*2); x.clip();
+  const g = x.createRadialGradient(64,64,10,64,64,64); g.addColorStop(0, th.bg[0]); g.addColorStop(1, th.bg[1]);
+  x.fillStyle = g; x.fillRect(0,0,128,128);
+  for (let i=0;i<14;i++){ const a=i/14; x.strokeStyle=`rgba(${trail.col(a)},${a})`; x.lineWidth=2+a*8; x.lineCap='round';
+    x.beginPath(); x.moveTo(14+a*40, 92-a*30); x.lineTo(14+(a+1/14)*40, 92-(a+1/14)*30); x.stroke(); }
+  x.translate(66,54); x.rotate(-0.6); x.scale(3.2,3.2); drawShip(x, p.ship || 'dart', 1.2);
+  x.restore();
+  const show = (p.show || []).map(achById).filter(Boolean).slice(0,2);
+  show.forEach((a, i) => {
+    const rk = BADGE_RANKS[badgeRank(a)], cx = i===0 ? 26 : 102, cy = 104, r = 21;
+    const mg = x.createRadialGradient(cx-6, cy-7, 3, cx, cy, r); mg.addColorStop(0, rk.grad[0]); mg.addColorStop(0.5, rk.grad[1]); mg.addColorStop(1, rk.grad[2]);
+    x.fillStyle = '#0b0d1f'; x.beginPath(); x.arc(cx, cy, r+3, 0, Math.PI*2); x.fill();
+    x.fillStyle = mg; x.beginPath(); x.arc(cx, cy, r, 0, Math.PI*2); x.fill();
+    x.fillStyle = rk.ink; x.font = '700 22px "Chakra Petch", sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(a[2], cx, cy + 1);
+  });
+}
+function myAvatarData(){ return {ship:shipEq, trail:equipped, theme:themeEq, show:shownBadges()}; }
+function avatarEl(id, px, data){
+  const c = document.createElement('canvas'); c.width = c.height = Math.round(px*2); c.className = 'ava'; c.style.width = c.style.height = px+'px';
+  const mine = id && id===uid && mode==='pilot';
+  const d = data || (mine ? myAvatarData() : avatarCache[id]);
+  paintAvatar(c, d);
+  if (!d && fb && id){
+    avatarWait[id] = avatarWait[id] || fb.F.getDoc(fb.F.doc(fb.db,'profiles',id))
+      .then(s => (avatarCache[id] = s.exists() ? s.data() : {}), () => ({}));
+    avatarWait[id].then(v => paintAvatar(c, v));
+  }
+  return c;
+}
+
 // ---------- pilot profiles (public) ----------
 let lastProfile = '', pilotSince = '', profFrom = 'menu', profRated = null;
 function profileBody(){
   return {callsign, flights:games, missions:missionsDone.length, mStars:sumRates(), badges:achs.slice(),
-    ship:shipEq, trail:equipped, theme:themeEq, since:pilotSince || dayKey()};
+    ship:shipEq, trail:equipped, theme:themeEq, since:pilotSince || dayKey(), show:shownBadges()};
 }
 async function publishProfile(){
   if (mode!=='pilot' || !fb || !uid) return;
@@ -1993,13 +2084,8 @@ function renderProfile(p, board, rank, fallbackName, mine, pid){
   const c = $('profileCard'); c.textContent='';
   const name = String((p && p.callsign) || (board && board.callsign) || fallbackName || 'Pilot').slice(0,16);
   const head = el('div','phead');
-  const av = document.createElement('canvas'); av.width=128; av.height=128; av.className='avatar';
-  const x = av.getContext('2d'), trail = TRAILS.find(t=>t.id===(p&&p.trail)) || TRAILS[0], th = THEMES.find(t=>t.id===(p&&p.theme)) || THEMES[0];
-  const g = x.createRadialGradient(64,64,10,64,64,64); g.addColorStop(0, th.bg[0]); g.addColorStop(1, th.bg[1]);
-  x.fillStyle=g; x.beginPath(); x.arc(64,64,64,0,Math.PI*2); x.fill();
-  for (let i=0;i<14;i++){ const a=i/14; x.strokeStyle=`rgba(${trail.col(a)},${a})`; x.lineWidth=2+a*8; x.lineCap='round';
-    x.beginPath(); x.moveTo(18+a*40, 96-a*30); x.lineTo(18+(a+1/14)*40, 96-(a+1/14)*30); x.stroke(); }
-  x.save(); x.translate(70,58); x.rotate(-0.6); x.scale(3.2,3.2); drawShip(x, (p&&p.ship)||'dart', 1.2); x.restore();
+  if (p && pid) avatarCache[pid] = p;
+  const av = avatarEl(pid, 76, p || {}); av.classList.add('avatar');
   const hx = el('div'); hx.append(el('span','eyebrow', mine ? 'Your pilot profile' : 'Pilot profile'), el('h2',null,name));
   hx.append(el('p','fine', p && p.since ? `Pilot since ${fmtDay(p.since)}` : 'Pilot'));
   head.append(av, hx); c.append(head);
@@ -2020,7 +2106,10 @@ function renderProfile(p, board, rank, fallbackName, mine, pid){
     c.append(el('div','sect','BADGES'));
     if (earned.length){
       const wall = el('div','badgewall');
-      for (const id of earned){ const a = achById(id); const b = el('span','badge'); b.append(el('span','emb got',a[2]), el('span',null,a[3])); b.title = a[4]; wall.append(b); }
+      const showing = (p.show||[]);
+      earned.map(achById).sort((x,y)=>badgeRank(y)-badgeRank(x)).forEach(a => {
+        const b = el('span','badge'+(showing.includes(a[0])?' showing':'')); b.append(medalEl(a, true, true), el('span',null,a[3]));
+        b.title = `${BADGE_RANKS[badgeRank(a)].name}: ${a[4]}`; wall.append(b); });
       c.append(wall);
     } else c.append(el('p','fine','No badges yet.'));
   } else c.append(el('p','fine', 'This pilot hasn’t flown since profiles arrived, so only their leaderboard score is shown.'));
@@ -2159,7 +2248,7 @@ function renderFriends(){
     const ol = el('ol','ranks');
     rows.forEach((r,i)=>{
       const li = el('li', r.me ? 'me' : null);
-      li.append(el('span','pos',(i+1)+'.'));
+      li.append(el('span','pos',(i+1)+'.'), avatarEl(r.id, 30));
       const n = btn('nm namebtn', r.me ? `${r.callsign} (you)` : r.callsign, ()=>openProfile(r.id, r.callsign, 'friends')); li.append(n);
       li.append(el('span','sc', String(r.best)));
       if (!r.me){
